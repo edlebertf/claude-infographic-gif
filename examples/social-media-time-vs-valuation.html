@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Social Media: Time vs Valuation</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: #0D1117;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      text-align: center;
+      max-width: 1000px;
+      width: 100%;
+      border: 1px solid #30363D;
+    }
+    h1 { color: #E6EDF3; margin-bottom: 8px; font-size: 24px; }
+    .subtitle { color: #8B949E; margin-bottom: 24px; }
+    #status { padding: 16px; border-radius: 8px; margin-bottom: 20px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 12px; }
+    .generating { background: #2D333B; color: #D29922; }
+    .success { background: #1C3D2E; color: #3FB950; }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(210, 153, 34, 0.3);
+      border-top-color: #D29922;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    .success .spinner { display: none; }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    #percentage {
+      font-size: 24px;
+      font-weight: 700;
+      color: #E6EDF3;
+      min-width: 60px;
+    }
+    #statusText { flex: 1; text-align: left; }
+    #preview { max-width: 100%; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.4); margin-bottom: 20px; border: 1px solid #30363D; }
+    .btn { display: inline-block; background: linear-gradient(135deg, #58A6FF 0%, #A371F7 100%); color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; cursor: pointer; border: none; font-size: 16px; }
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-secondary { background: linear-gradient(135deg, #3FB950 0%, #58A6FF 100%); }
+    .btn-container { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    #canvas { display: none; }
+    #videoStatus { margin-top: 12px; color: #D29922; font-size: 14px; min-height: 20px; }
+    .progress-bar { width: 100%; height: 8px; background: #21262D; border-radius: 4px; overflow: hidden; margin-bottom: 20px; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #58A6FF, #A371F7); width: 0%; transition: width 0.2s; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Social Media Platforms</h1>
+    <p class="subtitle" id="subtitleText">Generating scatter plot...</p>
+    <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+    <div id="status" class="generating">
+      <div class="spinner"></div>
+      <span id="percentage">0%</span>
+      <span id="statusText">Initializing...</span>
+    </div>
+    <canvas id="canvas" width="900" height="700"></canvas>
+    <img id="preview" style="display:none;" alt="Generated infographic">
+    <div class="btn-container">
+      <a id="downloadGif" class="btn" style="display:none;" download="social-media-scatter.gif">Download GIF</a>
+      <button id="downloadVideo" class="btn btn-secondary" style="display:none;">Download MP4 Video</button>
+    </div>
+    <div id="videoStatus"></div>
+  </div>
+
+<script>
+// =============================================
+// GIF ENCODER
+// =============================================
+function GIFEncoder(width, height) {
+  this.width = width;
+  this.height = height;
+  this.data = [];
+  this.writeByte = function(b) { this.data.push(b & 0xFF); };
+  this.writeShort = function(s) { this.writeByte(s & 0xFF); this.writeByte((s >> 8) & 0xFF); };
+  this.writeString = function(s) { for (var i = 0; i < s.length; i++) this.writeByte(s.charCodeAt(i)); };
+  this.start = function() {
+    this.data = [];
+    this.writeString('GIF89a');
+    this.writeShort(width); this.writeShort(height);
+    this.writeByte(0x70); this.writeByte(0); this.writeByte(0);
+    this.writeByte(0x21); this.writeByte(0xFF); this.writeByte(0x0B);
+    this.writeString('NETSCAPE2.0');
+    this.writeByte(0x03); this.writeByte(0x01); this.writeShort(0); this.writeByte(0x00);
+  };
+  this.addFrame = function(ctx, delay) {
+    var imgData = ctx.getImageData(0, 0, width, height);
+    var pixels = imgData.data;
+    var colorCounts = {};
+    for (var i = 0; i < pixels.length; i += 4) {
+      var r = pixels[i] & 0xF8, g = pixels[i+1] & 0xF8, b = pixels[i+2] & 0xF8;
+      var key = (r << 16) | (g << 8) | b;
+      colorCounts[key] = (colorCounts[key] || 0) + 1;
+    }
+    var sortedColors = Object.keys(colorCounts).map(function(k) {
+      return { color: parseInt(k), count: colorCounts[k] };
+    }).sort(function(a, b) { return b.count - a.count; }).slice(0, 256);
+    var palette = [], colorMap = {};
+    for (var i = 0; i < sortedColors.length; i++) {
+      var c = sortedColors[i].color;
+      palette.push((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+      colorMap[c] = i;
+    }
+    while (palette.length < 256 * 3) palette.push(0);
+    var indexed = new Uint8Array(width * height);
+    for (var i = 0; i < pixels.length; i += 4) {
+      var r = pixels[i] & 0xF8, g = pixels[i+1] & 0xF8, b = pixels[i+2] & 0xF8;
+      var key = (r << 16) | (g << 8) | b;
+      if (colorMap[key] !== undefined) indexed[i/4] = colorMap[key];
+      else {
+        var bestDist = Infinity, bestIdx = 0;
+        for (var j = 0; j < sortedColors.length; j++) {
+          var c = sortedColors[j].color;
+          var cr = (c >> 16) & 0xFF, cg = (c >> 8) & 0xFF, cb = c & 0xFF;
+          var dist = (r-cr)*(r-cr) + (g-cg)*(g-cg) + (b-cb)*(b-cb);
+          if (dist < bestDist) { bestDist = dist; bestIdx = j; }
+        }
+        indexed[i/4] = bestIdx;
+      }
+    }
+    this.writeByte(0x21); this.writeByte(0xF9); this.writeByte(0x04);
+    this.writeByte(0x00); this.writeShort(Math.round(delay / 10));
+    this.writeByte(0x00); this.writeByte(0x00);
+    this.writeByte(0x2C); this.writeShort(0); this.writeShort(0);
+    this.writeShort(width); this.writeShort(height); this.writeByte(0x87);
+    for (var i = 0; i < palette.length; i++) this.writeByte(palette[i]);
+    this.writeByte(8); this.lzwEncode(indexed); this.writeByte(0x00);
+  };
+  this.lzwEncode = function(pixels) {
+    var clearCode = 256, eoiCode = 257, codeSize = 9, nextCode = 258;
+    var dict = {}, buffer = 0, bufferLen = 0, output = [];
+    var emit = function(code) {
+      buffer |= code << bufferLen; bufferLen += codeSize;
+      while (bufferLen >= 8) { output.push(buffer & 0xFF); buffer >>= 8; bufferLen -= 8; }
+    };
+    emit(clearCode); var prev = pixels[0];
+    for (var i = 1; i < pixels.length; i++) {
+      var curr = pixels[i], key = prev + ',' + curr;
+      if (dict[key] !== undefined) prev = dict[key];
+      else {
+        emit(prev);
+        if (nextCode < 4096) { dict[key] = nextCode++; if (nextCode > (1 << codeSize) && codeSize < 12) codeSize++; }
+        else { emit(clearCode); dict = {}; codeSize = 9; nextCode = 258; }
+        prev = curr;
+      }
+    }
+    emit(prev); emit(eoiCode);
+    if (bufferLen > 0) output.push(buffer & 0xFF);
+    for (var i = 0; i < output.length; i += 255) {
+      var chunk = output.slice(i, Math.min(i + 255, output.length));
+      this.writeByte(chunk.length);
+      for (var j = 0; j < chunk.length; j++) this.writeByte(chunk[j]);
+    }
+  };
+  this.finish = function() {
+    this.writeByte(0x3B);
+    return new Blob([new Uint8Array(this.data)], {type: 'image/gif'});
+  };
+}
+
+// =============================================
+// CONFIGURATION
+// =============================================
+var WIDTH = 900;
+var HEIGHT = 700;
+
+var STYLE = {
+  background: '#0D1117',
+  text: '#E6EDF3',
+  textMuted: '#8B949E',
+  gridLine: '#21262D',
+  fontFamily: 'Arial, sans-serif'
+};
+
+var TITLE = "Social Media: Time Spent vs Valuation";
+var SUBTITLE = "Average daily minutes per user vs company market cap (2024)";
+
+// Data: platform, avg minutes/day (X), valuation in billions (Y), color
+var DATA = [
+  { name: "TikTok", minutes: 95, valuation: 225, color: "#00F2EA" },
+  { name: "YouTube", minutes: 74, valuation: 455, color: "#FF0000" },
+  { name: "Instagram", minutes: 33, valuation: 180, color: "#E4405F" },
+  { name: "Facebook", minutes: 31, valuation: 350, color: "#1877F2" },
+  { name: "X (Twitter)", minutes: 31, valuation: 15, color: "#FFFFFF" },
+  { name: "Snapchat", minutes: 30, valuation: 18, color: "#FFFC00" },
+  { name: "Reddit", minutes: 24, valuation: 15, color: "#FF4500" },
+  { name: "LinkedIn", minutes: 17, valuation: 85, color: "#0A66C2" }
+];
+
+var ANIMATION = {
+  totalFrames: 60,
+  holdFrames: 55,
+  frameDelay: 45,
+  holdDelay: 65
+};
+
+// =============================================
+// LAYOUT
+// =============================================
+var Layout = {
+  // Vertical sections (from top to bottom)
+  titleY: 0.04,           // Title position
+  subtitleY: 0.085,       // Subtitle position
+  plotTopY: 0.14,         // Plot area starts here
+  plotBottomY: 0.72,      // Plot area ends here (leave room below)
+  xTickLabelsY: 0.74,     // X-axis tick labels
+  xAxisTitleY: 0.79,      // X-axis title
+  insightY: 0.88,         // Insight box position
+
+  // Horizontal margins
+  marginLeft: 0.10,
+  marginRight: 0.05,
+
+  getPlotArea: function() {
+    var startY = HEIGHT * this.plotTopY;
+    var endY = HEIGHT * this.plotBottomY;
+    var startX = WIDTH * this.marginLeft;
+    var endX = WIDTH * (1 - this.marginRight);
+    return {
+      x: startX,
+      y: startY,
+      width: endX - startX,
+      height: endY - startY
+    };
+  },
+
+  getTitle: function() {
+    return { x: WIDTH / 2, y: HEIGHT * this.titleY, fontSize: 28 };
+  },
+
+  getSubtitle: function() {
+    return { x: WIDTH / 2, y: HEIGHT * this.subtitleY, fontSize: 14 };
+  },
+
+  getXTickLabelsY: function() {
+    return HEIGHT * this.xTickLabelsY;
+  },
+
+  getXAxisTitleY: function() {
+    return HEIGHT * this.xAxisTitleY;
+  },
+
+  getInsightY: function() {
+    return HEIGHT * this.insightY;
+  }
+};
+
+// =============================================
+// HELPERS
+// =============================================
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+function easeOutBack(t) {
+  var c1 = 1.70158;
+  var c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+
+// =============================================
+// LABEL PLACEMENT ALGORITHM
+// =============================================
+var LabelPlacer = {
+  // Possible label positions relative to point
+  positions: [
+    { name: 'top', dx: 0, dy: -1, align: 'center', baseline: 'bottom' },
+    { name: 'topRight', dx: 1, dy: -1, align: 'left', baseline: 'bottom' },
+    { name: 'right', dx: 1, dy: 0, align: 'left', baseline: 'middle' },
+    { name: 'bottomRight', dx: 1, dy: 1, align: 'left', baseline: 'top' },
+    { name: 'bottom', dx: 0, dy: 1, align: 'center', baseline: 'top' },
+    { name: 'bottomLeft', dx: -1, dy: 1, align: 'right', baseline: 'top' },
+    { name: 'left', dx: -1, dy: 0, align: 'right', baseline: 'middle' },
+    { name: 'topLeft', dx: -1, dy: -1, align: 'right', baseline: 'bottom' }
+  ],
+
+  // Calculate label bounding box for a given position
+  getLabelBounds: function(px, py, textWidth, textHeight, pos, pointRadius, padding) {
+    var offset = pointRadius + padding;
+    var x = px + pos.dx * offset;
+    var y = py + pos.dy * offset;
+
+    // Adjust x based on alignment
+    var left, right;
+    if (pos.align === 'center') {
+      left = x - textWidth / 2 - 6;
+      right = x + textWidth / 2 + 6;
+    } else if (pos.align === 'left') {
+      left = x - 4;
+      right = x + textWidth + 8;
+    } else { // right
+      left = x - textWidth - 8;
+      right = x + 4;
+    }
+
+    // Adjust y based on baseline
+    var top, bottom;
+    if (pos.baseline === 'middle') {
+      top = y - textHeight / 2 - 4;
+      bottom = y + textHeight / 2 + 4;
+    } else if (pos.baseline === 'top') {
+      top = y - 2;
+      bottom = y + textHeight + 6;
+    } else { // bottom
+      top = y - textHeight - 6;
+      bottom = y + 2;
+    }
+
+    return { left: left, right: right, top: top, bottom: bottom, x: x, y: y };
+  },
+
+  // Check if two rectangles overlap
+  rectsOverlap: function(a, b) {
+    return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+  },
+
+  // Check if rect is within bounds
+  isInBounds: function(rect, bounds) {
+    return rect.left >= bounds.left && rect.right <= bounds.right &&
+           rect.top >= bounds.top && rect.bottom <= bounds.bottom;
+  },
+
+  // Calculate overlap area between two rects
+  overlapArea: function(a, b) {
+    var xOverlap = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+    var yOverlap = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+    return xOverlap * yOverlap;
+  },
+
+  // Find best label positions for all points
+  computeLabels: function(points, plotBounds, pointRadius, ctx) {
+    var placed = [];
+    var results = [];
+    var padding = 8;
+    var textHeight = 20; // Approximate height of label pill
+
+    // Sort points by Y value (top to bottom) to prioritize top labels
+    var sortedIndices = points.map(function(p, i) { return i; });
+    sortedIndices.sort(function(a, b) { return points[a].y - points[b].y; });
+
+    var self = this;
+
+    sortedIndices.forEach(function(idx) {
+      var point = points[idx];
+      ctx.font = 'bold 13px Arial, sans-serif';
+      var textWidth = ctx.measureText(point.name).width;
+
+      var bestPos = null;
+      var bestScore = -Infinity;
+      var bestBounds = null;
+
+      self.positions.forEach(function(pos) {
+        var bounds = self.getLabelBounds(point.x, point.y, textWidth, textHeight, pos, pointRadius, padding);
+
+        // Check if fully within allowed bounds (strict check)
+        if (!self.isInBounds(bounds, plotBounds)) {
+          return; // Skip this position entirely
+        }
+
+        // Calculate score (higher is better)
+        var score = 100;
+
+        // Penalize overlaps with placed labels (heavy penalty)
+        placed.forEach(function(placedBounds) {
+          if (self.rectsOverlap(bounds, placedBounds)) {
+            score -= 80 + self.overlapArea(bounds, placedBounds) * 2;
+          }
+        });
+
+        // Penalize overlaps with other points
+        points.forEach(function(otherPoint, otherIdx) {
+          if (otherIdx !== idx) {
+            var pointBounds = {
+              left: otherPoint.x - pointRadius - 4,
+              right: otherPoint.x + pointRadius + 4,
+              top: otherPoint.y - pointRadius - 4,
+              bottom: otherPoint.y + pointRadius + 4
+            };
+            if (self.rectsOverlap(bounds, pointBounds)) {
+              score -= 40;
+            }
+          }
+        });
+
+        // Prefer top and right positions slightly
+        if (pos.name === 'top' || pos.name === 'topRight') score += 8;
+        if (pos.name === 'right' || pos.name === 'topLeft') score += 4;
+
+        // Penalize positions close to edges (graduated penalty)
+        var leftMargin = bounds.left - plotBounds.left;
+        var rightMargin = plotBounds.right - bounds.right;
+        var topMargin = bounds.top - plotBounds.top;
+        var bottomMargin = plotBounds.bottom - bounds.bottom;
+
+        if (leftMargin < 30) score -= (30 - leftMargin);
+        if (rightMargin < 20) score -= (20 - rightMargin);
+        if (topMargin < 20) score -= (20 - topMargin);
+        if (bottomMargin < 25) score -= (25 - bottomMargin) * 1.5; // Extra penalty near bottom (axis labels)
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestPos = pos;
+          bestBounds = bounds;
+        }
+      });
+
+      // Fallback if no good position found
+      if (!bestPos) {
+        bestPos = self.positions[0]; // top
+        bestBounds = self.getLabelBounds(point.x, point.y, textWidth, textHeight, bestPos, pointRadius, padding);
+      }
+
+      placed.push(bestBounds);
+      results[idx] = {
+        x: bestBounds.x,
+        y: bestBounds.y,
+        align: bestPos.align,
+        baseline: bestPos.baseline,
+        bounds: bestBounds
+      };
+    });
+
+    return results;
+  }
+};
+
+// =============================================
+// RENDER
+// =============================================
+function renderFrame(ctx, progress) {
+  var plot = Layout.getPlotArea();
+
+  // Data ranges
+  var minX = 0, maxX = 110;  // minutes
+  var minY = 0, maxY = 500;  // billions
+
+  // Scale functions
+  function scaleX(minutes) {
+    return plot.x + (minutes - minX) / (maxX - minX) * plot.width;
+  }
+  function scaleY(valuation) {
+    return plot.y + plot.height - (valuation - minY) / (maxY - minY) * plot.height;
+  }
+
+  // Clear
+  ctx.fillStyle = STYLE.background;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  // Title
+  var titlePos = Layout.getTitle();
+  ctx.font = 'bold ' + titlePos.fontSize + 'px ' + STYLE.fontFamily;
+  ctx.fillStyle = STYLE.text;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(TITLE, titlePos.x, titlePos.y);
+
+  // Subtitle
+  var subPos = Layout.getSubtitle();
+  ctx.font = subPos.fontSize + 'px ' + STYLE.fontFamily;
+  ctx.fillStyle = STYLE.textMuted;
+  ctx.fillText(SUBTITLE, subPos.x, subPos.y);
+
+  // Grid animation
+  var gridProgress = easeOutCubic(Math.min(1, progress * 3));
+
+  // Horizontal grid lines (valuation)
+  ctx.strokeStyle = STYLE.gridLine;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([5, 5]);
+  var yTicks = [0, 100, 200, 300, 400, 500];
+  yTicks.forEach(function(val) {
+    var y = scaleY(val);
+    ctx.globalAlpha = gridProgress * 0.6;
+    ctx.beginPath();
+    ctx.moveTo(plot.x, y);
+    ctx.lineTo(plot.x + plot.width * gridProgress, y);
+    ctx.stroke();
+  });
+
+  // Vertical grid lines (minutes)
+  var xTicks = [0, 20, 40, 60, 80, 100];
+  xTicks.forEach(function(val) {
+    var x = scaleX(val);
+    ctx.globalAlpha = gridProgress * 0.6;
+    ctx.beginPath();
+    ctx.moveTo(x, plot.y + plot.height);
+    ctx.lineTo(x, plot.y + plot.height - plot.height * gridProgress);
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+
+  // Axes
+  var axisProgress = easeOutCubic(Math.min(1, progress * 2.5));
+  ctx.strokeStyle = STYLE.textMuted;
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+
+  // Y-axis
+  ctx.beginPath();
+  ctx.moveTo(plot.x, plot.y + plot.height);
+  ctx.lineTo(plot.x, plot.y + plot.height - plot.height * axisProgress);
+  ctx.stroke();
+
+  // X-axis
+  ctx.beginPath();
+  ctx.moveTo(plot.x, plot.y + plot.height);
+  ctx.lineTo(plot.x + plot.width * axisProgress, plot.y + plot.height);
+  ctx.stroke();
+
+  // Axis labels
+  var labelProgress = easeOutCubic(Math.min(1, Math.max(0, progress * 2 - 0.3)));
+  ctx.globalAlpha = labelProgress;
+
+  // Y-axis tick labels
+  ctx.font = 'bold 12px ' + STYLE.fontFamily;
+  ctx.fillStyle = STYLE.textMuted;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  yTicks.forEach(function(val) {
+    if (val === 0) return;
+    ctx.fillText('$' + val + 'B', plot.x - 10, scaleY(val));
+  });
+
+  // X-axis tick labels (using explicit Y position)
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  var xTickY = Layout.getXTickLabelsY();
+  xTicks.forEach(function(val) {
+    if (val === 0) return;
+    ctx.fillText(val + ' min', scaleX(val), xTickY);
+  });
+
+  // Axis titles
+  ctx.font = 'bold 14px ' + STYLE.fontFamily;
+  ctx.fillStyle = STYLE.text;
+
+  // X-axis title (using explicit Y position)
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('Average Daily Time Spent', plot.x + plot.width / 2, Layout.getXAxisTitleY());
+
+  // Y-axis title (rotated)
+  ctx.save();
+  ctx.translate(plot.x - 55, plot.y + plot.height / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Market Valuation', 0, 0);
+  ctx.restore();
+
+  ctx.globalAlpha = 1;
+
+  // Prepare point data with screen coordinates
+  var pointRadius = 12;
+  var pointsData = DATA.map(function(item) {
+    return {
+      name: item.name,
+      x: scaleX(item.minutes),
+      y: scaleY(item.valuation),
+      color: item.color
+    };
+  });
+
+  // Compute optimal label positions
+  // Use tighter bounds to keep labels well within the plot area
+  var labelBounds = {
+    left: plot.x + 15,                    // Keep away from Y-axis
+    right: plot.x + plot.width - 10,      // Some right margin
+    top: plot.y + 10,                     // Some top margin
+    bottom: plot.y + plot.height - 15     // Keep away from X-axis labels
+  };
+  var labelPositions = LabelPlacer.computeLabels(pointsData, labelBounds, pointRadius, ctx);
+
+  // Draw data points
+  // Animation timing: ensure all items complete by progress=1
+  var pointsStartProgress = 0.22;
+  var totalItems = DATA.length;
+  var itemStagger = 0.05;
+  var lastItemStart = pointsStartProgress + (totalItems - 1) * itemStagger;
+  var animSpeed = 1 / (1 - lastItemStart - 0.12); // Ensure last item + label finishes by progress=1
+
+  DATA.forEach(function(item, i) {
+    var itemDelay = i * itemStagger;
+    var itemProgress = Math.min(1, Math.max(0, (progress - pointsStartProgress - itemDelay) * animSpeed));
+    if (itemProgress <= 0) return;
+
+    var x = pointsData[i].x;
+    var y = pointsData[i].y;
+    var currentRadius = pointRadius * easeOutBack(itemProgress);
+
+    // Glow effect
+    ctx.globalAlpha = 0.3 * itemProgress;
+    ctx.beginPath();
+    ctx.arc(x, y, currentRadius + 8, 0, Math.PI * 2);
+    ctx.fillStyle = item.color;
+    ctx.fill();
+
+    // Point
+    ctx.globalAlpha = itemProgress;
+    ctx.beginPath();
+    ctx.arc(x, y, currentRadius, 0, Math.PI * 2);
+    ctx.fillStyle = item.color;
+    ctx.fill();
+
+    // White border
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Label (using computed positions) - starts at 50% of item progress, fully visible by 85%
+    var labelItemProgress = Math.min(1, Math.max(0, (itemProgress - 0.5) / 0.35));
+    if (labelItemProgress > 0 && labelPositions[i]) {
+      ctx.globalAlpha = labelItemProgress;
+
+      var labelPos = labelPositions[i];
+      var labelX = labelPos.x;
+      var labelY = labelPos.y;
+      var align = labelPos.align;
+      var baseline = labelPos.baseline;
+
+      // Background pill
+      ctx.font = 'bold 13px ' + STYLE.fontFamily;
+      var textWidth = ctx.measureText(item.name).width;
+      var pillPadding = 6;
+      var pillHeight = 20;
+      var pillX = align === 'center' ? labelX - textWidth / 2 - pillPadding :
+                  align === 'right' ? labelX - textWidth - pillPadding * 2 :
+                  labelX - 4;
+      var pillY = baseline === 'bottom' ? labelY - pillHeight + 2 :
+                  baseline === 'top' ? labelY - 2 :
+                  labelY - pillHeight / 2;
+
+      // Draw pill background
+      ctx.fillStyle = 'rgba(13, 17, 23, 0.9)';
+      ctx.beginPath();
+      var r = 4;
+      var pw = textWidth + pillPadding * 2;
+      ctx.moveTo(pillX + r, pillY);
+      ctx.lineTo(pillX + pw - r, pillY);
+      ctx.quadraticCurveTo(pillX + pw, pillY, pillX + pw, pillY + r);
+      ctx.lineTo(pillX + pw, pillY + pillHeight - r);
+      ctx.quadraticCurveTo(pillX + pw, pillY + pillHeight, pillX + pw - r, pillY + pillHeight);
+      ctx.lineTo(pillX + r, pillY + pillHeight);
+      ctx.quadraticCurveTo(pillX, pillY + pillHeight, pillX, pillY + pillHeight - r);
+      ctx.lineTo(pillX, pillY + r);
+      ctx.quadraticCurveTo(pillX, pillY, pillX + r, pillY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Border matching point color
+      ctx.strokeStyle = item.color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Draw connector line from pill to point
+      ctx.beginPath();
+      ctx.strokeStyle = item.color;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = labelItemProgress * 0.5;
+      var connectorStartX = pillX + pw / 2;
+      var connectorStartY = baseline === 'bottom' ? pillY + pillHeight :
+                            baseline === 'top' ? pillY :
+                            pillY + pillHeight / 2;
+      ctx.moveTo(connectorStartX, connectorStartY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.globalAlpha = labelItemProgress;
+
+      // Text
+      ctx.fillStyle = STYLE.text;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(item.name, pillX + pw / 2, pillY + pillHeight / 2);
+    }
+
+    ctx.globalAlpha = 1;
+  });
+
+  // Insight box at bottom (using explicit layout position, well below x-axis title)
+  var insightProgress = easeOutCubic(Math.min(1, Math.max(0, (progress - 0.85) * 5)));
+  if (insightProgress > 0) {
+    ctx.globalAlpha = insightProgress;
+
+    var insightY = Layout.getInsightY();
+    var insightX = WIDTH / 2;
+
+    // Background
+    ctx.fillStyle = 'rgba(22, 27, 34, 0.95)';
+    var insightText = 'Insight: High engagement does not guarantee high valuation';
+    ctx.font = '13px ' + STYLE.fontFamily;
+    var tw = ctx.measureText(insightText).width;
+    ctx.beginPath();
+    var ix = insightX - tw / 2 - 16;
+    var iy = insightY - 14;
+    var iw = tw + 32;
+    var ih = 28;
+    var ir = 6;
+    ctx.moveTo(ix + ir, iy);
+    ctx.lineTo(ix + iw - ir, iy);
+    ctx.quadraticCurveTo(ix + iw, iy, ix + iw, iy + ir);
+    ctx.lineTo(ix + iw, iy + ih - ir);
+    ctx.quadraticCurveTo(ix + iw, iy + ih, ix + iw - ir, iy + ih);
+    ctx.lineTo(ix + ir, iy + ih);
+    ctx.quadraticCurveTo(ix, iy + ih, ix, iy + ih - ir);
+    ctx.lineTo(ix, iy + ir);
+    ctx.quadraticCurveTo(ix, iy, ix + ir, iy);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = '#A371F7';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Text
+    ctx.fillStyle = '#E6EDF3';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(insightText, insightX, insightY);
+
+    ctx.globalAlpha = 1;
+  }
+}
+
+// =============================================
+// GENERATE
+// =============================================
+function generate() {
+  var status = document.getElementById('status');
+  var statusText = document.getElementById('statusText');
+  var percentage = document.getElementById('percentage');
+  var progressBar = document.getElementById('progress');
+  var canvas = document.getElementById('canvas');
+  var ctx = canvas.getContext('2d');
+
+  var encoder = new GIFEncoder(WIDTH, HEIGHT);
+  encoder.start();
+
+  var total = ANIMATION.totalFrames + ANIMATION.holdFrames + 1;
+  var current = 0;
+
+  function updateProgress(pct, text) {
+    percentage.textContent = pct + '%';
+    statusText.textContent = text;
+    progressBar.style.width = pct + '%';
+  }
+
+  // Use setTimeout to allow UI updates between frames
+  function renderAnimationFrames(i) {
+    if (i <= ANIMATION.totalFrames) {
+      renderFrame(ctx, i / ANIMATION.totalFrames);
+      encoder.addFrame(ctx, ANIMATION.frameDelay);
+      current++;
+      var pct = Math.round((current / total) * 100);
+      updateProgress(pct, 'Rendering frame ' + (i + 1) + ' of ' + (ANIMATION.totalFrames + 1) + '...');
+      setTimeout(function() { renderAnimationFrames(i + 1); }, 0);
+    } else {
+      renderHoldFrames(0);
+    }
+  }
+
+  function renderHoldFrames(i) {
+    if (i < ANIMATION.holdFrames) {
+      renderFrame(ctx, 1);
+      encoder.addFrame(ctx, ANIMATION.holdDelay);
+      current++;
+      var pct = Math.round((current / total) * 100);
+      updateProgress(pct, 'Adding hold frame ' + (i + 1) + ' of ' + ANIMATION.holdFrames + '...');
+      setTimeout(function() { renderHoldFrames(i + 1); }, 0);
+    } else {
+      finishEncoding();
+    }
+  }
+
+  function finishEncoding() {
+    updateProgress(99, 'Encoding GIF...');
+    setTimeout(function() {
+      var blob = encoder.finish();
+      var url = URL.createObjectURL(blob);
+
+      document.getElementById('preview').src = url;
+      document.getElementById('preview').style.display = 'block';
+      document.getElementById('downloadGif').href = url;
+      document.getElementById('downloadGif').style.display = 'inline-block';
+      document.getElementById('downloadVideo').style.display = 'inline-block';
+
+      status.className = 'success';
+      percentage.textContent = '100%';
+      statusText.textContent = 'Done! GIF size: ' + (blob.size / 1024).toFixed(0) + ' KB';
+      progressBar.style.width = '100%';
+      document.getElementById('subtitleText').textContent = 'Your infographic is ready!';
+
+      document.getElementById('downloadVideo').onclick = recordVideo;
+    }, 50);
+  }
+
+  function recordVideo() {
+    var videoStatus = document.getElementById('videoStatus');
+    var videoBtn = document.getElementById('downloadVideo');
+    videoBtn.disabled = true;
+    videoBtn.textContent = 'Recording...';
+    videoStatus.textContent = 'Preparing video recording...';
+
+    var canvas = document.getElementById('canvas');
+    canvas.style.display = 'block';
+    canvas.style.position = 'absolute';
+    canvas.style.left = '-9999px';
+    var ctx = canvas.getContext('2d');
+
+    var stream = canvas.captureStream(30);
+    var chunks = [];
+    var mimeType = 'video/webm;codecs=vp9';
+    if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+    var recorder = new MediaRecorder(stream, { mimeType: mimeType, videoBitsPerSecond: 5000000 });
+
+    recorder.ondataavailable = function(e) { if (e.data.size > 0) chunks.push(e.data); };
+    recorder.onstop = function() {
+      var blob = new Blob(chunks, { type: mimeType });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'social-media-scatter.webm';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      videoStatus.textContent = 'Video downloaded! Size: ' + (blob.size / 1024).toFixed(0) + ' KB';
+      videoBtn.disabled = false;
+      videoBtn.textContent = 'Download MP4 Video';
+      canvas.style.display = 'none';
+    };
+
+    recorder.start();
+    videoStatus.textContent = 'Recording animation...';
+
+    var totalFrames = ANIMATION.totalFrames + ANIMATION.holdFrames;
+    var frameIndex = 0;
+
+    function renderNextFrame() {
+      if (frameIndex <= ANIMATION.totalFrames) {
+        renderFrame(ctx, frameIndex / ANIMATION.totalFrames);
+      } else {
+        renderFrame(ctx, 1);
+      }
+      frameIndex++;
+      videoStatus.textContent = 'Recording frame ' + frameIndex + ' of ' + totalFrames + '...';
+      if (frameIndex < totalFrames) {
+        setTimeout(renderNextFrame, 1000 / 30);
+      } else {
+        setTimeout(function() { recorder.stop(); }, 200);
+      }
+    }
+    renderNextFrame();
+  }
+
+  updateProgress(0, 'Starting render...');
+  setTimeout(function() { renderAnimationFrames(0); }, 100);
+}
+
+window.onload = function() { setTimeout(generate, 100); };
+</script>
+</body>
+</html>

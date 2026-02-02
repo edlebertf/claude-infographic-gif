@@ -1,0 +1,27 @@
+# Generated output files
+*.gif
+*.webm
+*.mp4
+
+# Generated HTML files (keep templates, ignore user output)
+output/
+generated/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node (if ever added)
+node_modules/
+package-lock.json
+
+# Logs
+*.log

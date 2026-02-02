@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Netflix: DVD vs Streaming Era</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: #0D1117;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      text-align: center;
+      max-width: 1000px;
+      width: 100%;
+      border: 1px solid #30363D;
+    }
+    h1 { color: #E6EDF3; margin-bottom: 8px; font-size: 24px; }
+    .subtitle { color: #8B949E; margin-bottom: 24px; }
+    #status { padding: 16px; border-radius: 8px; margin-bottom: 20px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 12px; }
+    .generating { background: #2D333B; color: #D29922; }
+    .success { background: #1C3D2E; color: #3FB950; }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(210, 153, 34, 0.3);
+      border-top-color: #D29922;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    .success .spinner { display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #percentage { font-size: 24px; font-weight: 700; color: #E6EDF3; min-width: 60px; }
+    #statusText { flex: 1; text-align: left; }
+    #preview { max-width: 100%; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.4); margin-bottom: 20px; border: 1px solid #30363D; }
+    .btn { display: inline-block; background: linear-gradient(135deg, #E50914 0%, #B20710 100%); color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; cursor: pointer; border: none; font-size: 16px; }
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-secondary { background: linear-gradient(135deg, #564d4d 0%, #221f1f 100%); }
+    .btn-container { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    #canvas { display: none; }
+    #videoStatus { margin-top: 12px; color: #D29922; font-size: 14px; min-height: 20px; }
+    .progress-bar { width: 100%; height: 8px; background: #21262D; border-radius: 4px; overflow: hidden; margin-bottom: 20px; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #E50914, #B20710); width: 0%; transition: width 0.2s; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Netflix: DVD vs Streaming Era</h1>
+    <p class="subtitle" id="subtitleText">Generating infographic...</p>
+    <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+    <div id="status" class="generating">
+      <div class="spinner"></div>
+      <span id="percentage">0%</span>
+      <span id="statusText">Initializing...</span>
+    </div>
+    <canvas id="canvas" width="900" height="650"></canvas>
+    <img id="preview" style="display:none;" alt="Generated infographic">
+    <div class="btn-container">
+      <a id="downloadGif" class="btn" style="display:none;" download="netflix-dvd-vs-streaming.gif">Download GIF</a>
+      <button id="downloadVideo" class="btn btn-secondary" style="display:none;">Download Video</button>
+    </div>
+    <div id="videoStatus"></div>
+  </div>
+
+<script>
+// GIF ENCODER (self-contained, works offline)
+function GIFEncoder(width, height) {
+  this.width = width;
+  this.height = height;
+  this.data = [];
+  this.writeByte = function(b) { this.data.push(b & 0xFF); };
+  this.writeShort = function(s) { this.writeByte(s & 0xFF); this.writeByte((s >> 8) & 0xFF); };
+  this.writeString = function(s) { for (var i = 0; i < s.length; i++) this.writeByte(s.charCodeAt(i)); };
+  this.start = function() {
+    this.data = [];
+    this.writeString('GIF89a');
+    this.writeShort(width); this.writeShort(height);
+    this.writeByte(0x70); this.writeByte(0); this.writeByte(0);
+    this.writeByte(0x21); this.writeByte(0xFF); this.writeByte(0x0B);
+    this.writeString('NETSCAPE2.0');
+    this.writeByte(0x03); this.writeByte(0x01); this.writeShort(0); this.writeByte(0x00);
+  };
+  this.addFrame = function(ctx, delay) {
+    var imgData = ctx.getImageData(0, 0, width, height);
+    var pixels = imgData.data;
+    var colorCounts = {};
+    for (var i = 0; i < pixels.length; i += 4) {
+      var r = pixels[i] & 0xF8, g = pixels[i+1] & 0xF8, b = pixels[i+2] & 0xF8;
+      var key = (r << 16) | (g << 8) | b;
+      colorCounts[key] = (colorCounts[key] || 0) + 1;
+    }
+    var sortedColors = Object.keys(colorCounts).map(function(k) {
+      return { color: parseInt(k), count: colorCounts[k] };
+    }).sort(function(a, b) { return b.count - a.count; }).slice(0, 256);
+    var palette = [], colorMap = {};
+    for (var i = 0; i < sortedColors.length; i++) {
+      var c = sortedColors[i].color;
+      palette.push((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+      colorMap[c] = i;
+    }
+    while (palette.length < 256 * 3) palette.push(0);
+    var indexed = new Uint8Array(width * height);
+    for (var i = 0; i < pixels.length; i += 4) {
+      var r = pixels[i] & 0xF8, g = pixels[i+1] & 0xF8, b = pixels[i+2] & 0xF8;
+      var key = (r << 16) | (g << 8) | b;
+      if (colorMap[key] !== undefined) indexed[i/4] = colorMap[key];
+      else {
+        var bestDist = Infinity, bestIdx = 0;
+        for (var j = 0; j < sortedColors.length; j++) {
+          var c = sortedColors[j].color;
+          var cr = (c >> 16) & 0xFF, cg = (c >> 8) & 0xFF, cb = c & 0xFF;
+          var dist = (r-cr)*(r-cr) + (g-cg)*(g-cg) + (b-cb)*(b-cb);
+          if (dist < bestDist) { bestDist = dist; bestIdx = j; }
+        }
+        indexed[i/4] = bestIdx;
+      }
+    }
+    this.writeByte(0x21); this.writeByte(0xF9); this.writeByte(0x04);
+    this.writeByte(0x00); this.writeShort(Math.round(delay / 10));
+    this.writeByte(0x00); this.writeByte(0x00);
+    this.writeByte(0x2C); this.writeShort(0); this.writeShort(0);
+    this.writeShort(width); this.writeShort(height); this.writeByte(0x87);
+    for (var i = 0; i < palette.length; i++) this.writeByte(palette[i]);
+    this.writeByte(8); this.lzwEncode(indexed); this.writeByte(0x00);
+  };
+  this.lzwEncode = function(pixels) {
+    var clearCode = 256, eoiCode = 257, codeSize = 9, nextCode = 258;
+    var dict = {}, buffer = 0, bufferLen = 0, output = [];
+    var emit = function(code) {
+      buffer |= code << bufferLen; bufferLen += codeSize;
+      while (bufferLen >= 8) { output.push(buffer & 0xFF); buffer >>= 8; bufferLen -= 8; }
+    };
+    emit(clearCode); var prev = pixels[0];
+    for (var i = 1; i < pixels.length; i++) {
+      var curr = pixels[i], key = prev + ',' + curr;
+      if (dict[key] !== undefined) prev = dict[key];
+      else {
+        emit(prev);
+        if (nextCode < 4096) { dict[key] = nextCode++; if (nextCode > (1 << codeSize) && codeSize < 12) codeSize++; }
+        else { emit(clearCode); dict = {}; codeSize = 9; nextCode = 258; }
+        prev = curr;
+      }
+    }
+    emit(prev); emit(eoiCode);
+    if (bufferLen > 0) output.push(buffer & 0xFF);
+    for (var i = 0; i < output.length; i += 255) {
+      var chunk = output.slice(i, Math.min(i + 255, output.length));
+      this.writeByte(chunk.length);
+      for (var j = 0; j < chunk.length; j++) this.writeByte(chunk[j]);
+    }
+  };
+  this.finish = function() {
+    this.writeByte(0x3B);
+    return new Blob([new Uint8Array(this.data)], {type: 'image/gif'});
+  };
+}
+
+// =============================================
+// TEXT LAYOUT MANAGER
+// =============================================
+var TextLayoutManager = {
+  create: function(ctx, bounds) {
+    return {
+      ctx: ctx,
+      bounds: bounds || { x: 0, y: 0, width: ctx.canvas.width, height: ctx.canvas.height },
+      placedRegions: [],
+
+      measureText: function(text, font) {
+        var oldFont = this.ctx.font;
+        if (font) this.ctx.font = font;
+        var metrics = this.ctx.measureText(text);
+        var width = metrics.width;
+        var height = parseInt(this.ctx.font) || 14;
+        if (font) this.ctx.font = oldFont;
+        return { width: width, height: height };
+      },
+
+      getTextBounds: function(text, x, y, align, baseline, font, padding) {
+        var size = this.measureText(text, font);
+        padding = padding || 4;
+        var width = size.width + padding * 2;
+        var height = size.height + padding * 2;
+        var bx = x - padding;
+        var by = y - padding;
+        if (align === 'center') bx = x - width / 2;
+        else if (align === 'right') bx = x - width + padding;
+        if (baseline === 'middle') by = y - height / 2;
+        else if (baseline === 'bottom') by = y - height + padding;
+        else if (baseline === 'top') by = y - padding;
+        return { x: bx, y: by, width: width, height: height };
+      },
+
+      rectsOverlap: function(a, b, margin) {
+        margin = margin || 2;
+        return !(a.x + a.width + margin < b.x ||
+                 b.x + b.width + margin < a.x ||
+                 a.y + a.height + margin < b.y ||
+                 b.y + b.height + margin < a.y);
+      },
+
+      hasOverlap: function(rect, margin) {
+        for (var i = 0; i < this.placedRegions.length; i++) {
+          if (this.rectsOverlap(rect, this.placedRegions[i], margin)) return true;
+        }
+        return false;
+      },
+
+      isInBounds: function(rect, padding) {
+        padding = padding || 5;
+        return rect.x >= this.bounds.x + padding &&
+               rect.y >= this.bounds.y + padding &&
+               rect.x + rect.width <= this.bounds.x + this.bounds.width - padding &&
+               rect.y + rect.height <= this.bounds.y + this.bounds.height - padding;
+      },
+
+      reserveRegion: function(x, y, width, height, priority) {
+        this.placedRegions.push({ x: x, y: y, width: width, height: height, priority: priority || 0 });
+      },
+
+      findNonOverlappingPosition: function(text, preferredX, preferredY, options) {
+        options = options || {};
+        var font = options.font;
+        var preferredAlign = options.align || 'left';
+        var preferredBaseline = options.baseline || 'middle';
+        var offsetDistance = options.offsetDistance || 15;
+
+        var positions = [
+          { x: preferredX, y: preferredY, align: preferredAlign, baseline: preferredBaseline },
+          { x: preferredX + offsetDistance, y: preferredY, align: 'left', baseline: preferredBaseline },
+          { x: preferredX - offsetDistance, y: preferredY, align: 'right', baseline: preferredBaseline },
+          { x: preferredX, y: preferredY - offsetDistance, align: preferredAlign, baseline: 'bottom' },
+          { x: preferredX, y: preferredY + offsetDistance, align: preferredAlign, baseline: 'top' }
+        ];
+
+        for (var i = 0; i < positions.length; i++) {
+          var pos = positions[i];
+          var bounds = this.getTextBounds(text, pos.x, pos.y, pos.align, pos.baseline, font);
+          if (!this.hasOverlap(bounds, 3) && this.isInBounds(bounds)) return pos;
+        }
+        return positions[0];
+      },
+
+      placeText: function(text, x, y, options) {
+        options = options || {};
+        var font = options.font;
+        var align = options.align || 'left';
+        var baseline = options.baseline || 'middle';
+        var color = options.color || '#FFFFFF';
+        var alpha = options.alpha !== undefined ? options.alpha : 1;
+        var forcePosition = options.forcePosition || false;
+
+        var finalPos = forcePosition ? { x: x, y: y, align: align, baseline: baseline } :
+          this.findNonOverlappingPosition(text, x, y, { font: font, align: align, baseline: baseline });
+
+        var bounds = this.getTextBounds(text, finalPos.x, finalPos.y, finalPos.align, finalPos.baseline, font);
+        this.placedRegions.push({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
+
+        var oldAlpha = this.ctx.globalAlpha;
+        var oldFont = this.ctx.font;
+        this.ctx.globalAlpha = alpha;
+        if (font) this.ctx.font = font;
+        this.ctx.fillStyle = color;
+        this.ctx.textAlign = finalPos.align;
+        this.ctx.textBaseline = finalPos.baseline;
+        this.ctx.fillText(text, finalPos.x, finalPos.y);
+        this.ctx.globalAlpha = oldAlpha;
+        if (font) this.ctx.font = oldFont;
+        return finalPos;
+      },
+
+      clear: function() { this.placedRegions = []; }
+    };
+  }
+};
+
+// =============================================
+// CONFIGURATION
+// =============================================
+var WIDTH = 900;
+var HEIGHT = 650;
+var ANIMATION = { totalFrames: 60, holdFrames: 50, frameDelay: 50, holdDelay: 60 };
+
+var STYLE = {
+  background: '#0D1117',
+  text: '#E6EDF3',
+  textMuted: '#8B949E',
+  gridLine: '#21262D',
+  fontFamily: 'Arial, sans-serif'
+};
+
+// Netflix subscriber data (millions) - DVD vs Streaming
+// Historical data compiled from Netflix investor reports and public sources
+var DATA = {
+  labels: ['2007', '2008', '2009', '2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024'],
+  series: [
+    {
+      name: 'DVD by Mail',
+      values: [7, 9, 11, 15, 20, 14, 11, 8, 6, 5, 4, 3.4, 2.7, 2.2, 1.8, 1.2, 0.5, 0],
+      color: '#E50914'  // Netflix red
+    },
+    {
+      name: 'Streaming',
+      values: [0, 0, 1, 5, 22, 30, 40, 54, 70, 89, 117, 139, 167, 204, 222, 231, 260, 302],
+      color: '#46D369'  // Streaming green
+    }
+  ]
+};
+
+var CONFIG = {
+  title: 'Netflix: DVD vs Streaming Era',
+  subtitle: 'Paid Subscribers (Millions) | DVD Service Ended September 2023',
+  source: 'Source: Netflix Investor Reports'
+};
+
+// =============================================
+// RENDER FUNCTION
+// =============================================
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+function formatValue(num) {
+  if (num >= 1000) return (num / 1000).toFixed(0) + 'B';
+  return Math.round(num) + 'M';
+}
+
+function renderFrame(ctx, progress) {
+  // Clear background
+  ctx.fillStyle = STYLE.background;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  // Create text manager
+  var textMgr = TextLayoutManager.create(ctx, { x: 0, y: 0, width: WIDTH, height: HEIGHT });
+
+  var eased = easeOutCubic(progress);
+
+  // Title
+  var titleAlpha = Math.min(1, eased * 3);
+  textMgr.placeText(CONFIG.title, WIDTH / 2, 40, {
+    font: 'bold 32px ' + STYLE.fontFamily,
+    color: STYLE.text,
+    align: 'center',
+    baseline: 'middle',
+    alpha: titleAlpha,
+    forcePosition: true
+  });
+
+  // Subtitle
+  var subtitleAlpha = Math.min(1, Math.max(0, (eased - 0.1) * 3));
+  textMgr.placeText(CONFIG.subtitle, WIDTH / 2, 75, {
+    font: '15px ' + STYLE.fontFamily,
+    color: STYLE.textMuted,
+    align: 'center',
+    baseline: 'middle',
+    alpha: subtitleAlpha,
+    forcePosition: true
+  });
+
+  // Plot area
+  var plotArea = {
+    x: 80,
+    y: 120,
+    width: 640,
+    height: 420
+  };
+
+  // Find max value for scale
+  var maxValue = 320; // Max streaming subscribers ~302M, round up for headroom
+  var minValue = 0;
+
+  // Draw grid lines
+  ctx.strokeStyle = STYLE.gridLine;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+
+  var gridCount = 4;
+  for (var i = 0; i <= gridCount; i++) {
+    var gy = plotArea.y + (plotArea.height / gridCount) * i;
+    ctx.beginPath();
+    ctx.moveTo(plotArea.x, gy);
+    ctx.lineTo(plotArea.x + plotArea.width, gy);
+    ctx.stroke();
+
+    // Y-axis labels
+    var yVal = maxValue - (maxValue / gridCount) * i;
+    textMgr.placeText(yVal + 'M', plotArea.x - 12, gy, {
+      font: '12px ' + STYLE.fontFamily,
+      color: STYLE.textMuted,
+      align: 'right',
+      baseline: 'middle',
+      forcePosition: true
+    });
+  }
+  ctx.setLineDash([]);
+
+  // Draw axes
+  ctx.strokeStyle = STYLE.textMuted;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(plotArea.x, plotArea.y);
+  ctx.lineTo(plotArea.x, plotArea.y + plotArea.height);
+  ctx.lineTo(plotArea.x + plotArea.width, plotArea.y + plotArea.height);
+  ctx.stroke();
+
+  var labels = DATA.labels;
+  var stepX = plotArea.width / (labels.length - 1);
+
+  // X-axis labels (show every 2 years for readability)
+  ctx.font = '11px ' + STYLE.fontFamily;
+  ctx.fillStyle = STYLE.textMuted;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+
+  for (var i = 0; i < labels.length; i++) {
+    if (i % 2 === 0 || i === labels.length - 1) {
+      var x = plotArea.x + i * stepX;
+      ctx.fillText(labels[i], x, plotArea.y + plotArea.height + 10);
+    }
+  }
+
+  // Draw each series
+  DATA.series.forEach(function(series, seriesIndex) {
+    var seriesProgress = Math.min(1, Math.max(0, (eased - seriesIndex * 0.15) * 1.5));
+    if (seriesProgress <= 0) return;
+
+    var color = series.color;
+    var points = [];
+
+    // Calculate all points
+    series.values.forEach(function(val, i) {
+      var x = plotArea.x + i * stepX;
+      var normalizedValue = val / maxValue;
+      var y = plotArea.y + plotArea.height - (normalizedValue * plotArea.height);
+      points.push({ x: x, y: y, value: val });
+    });
+
+    // Animate line drawing
+    var numPointsToDraw = Math.ceil(points.length * seriesProgress);
+
+    // Draw filled area under line with gradient
+    if (numPointsToDraw > 1) {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, plotArea.y + plotArea.height);
+      ctx.lineTo(points[0].x, points[0].y);
+      for (var i = 1; i < numPointsToDraw; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+      ctx.lineTo(points[numPointsToDraw - 1].x, plotArea.y + plotArea.height);
+      ctx.closePath();
+
+      var gradient = ctx.createLinearGradient(0, plotArea.y, 0, plotArea.y + plotArea.height);
+      gradient.addColorStop(0, color + '40');
+      gradient.addColorStop(1, color + '05');
+      ctx.fillStyle = gradient;
+      ctx.fill();
+    }
+
+    // Draw line
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (var i = 1; i < numPointsToDraw; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    // Draw dots on key points
+    var keyPoints = [0, 4, 7, 11, 17]; // 2007, 2011, 2014, 2018, 2024
+    for (var i = 0; i < numPointsToDraw; i++) {
+      if (keyPoints.indexOf(i) !== -1) {
+        ctx.beginPath();
+        ctx.arc(points[i].x, points[i].y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = STYLE.background;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    // Draw end point with value label
+    if (numPointsToDraw > 0) {
+      var lastIdx = numPointsToDraw - 1;
+      var lastPoint = points[lastIdx];
+
+      // Draw end dot
+      ctx.beginPath();
+      ctx.arc(lastPoint.x, lastPoint.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = STYLE.background;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Value label at end
+      if (seriesProgress > 0.8 && lastPoint.value > 0) {
+        var labelAlpha = Math.min(1, (seriesProgress - 0.8) * 5);
+        var labelY = seriesIndex === 0 ? lastPoint.y + 20 : lastPoint.y - 15;
+        textMgr.placeText(Math.round(lastPoint.value) + 'M', lastPoint.x, labelY, {
+          font: 'bold 14px ' + STYLE.fontFamily,
+          color: color,
+          align: 'center',
+          baseline: 'middle',
+          alpha: labelAlpha
+        });
+      }
+    }
+  });
+
+  // Legend
+  var legendX = 760;
+  var legendY = 140;
+
+  DATA.series.forEach(function(series, i) {
+    var legendProgress = Math.min(1, Math.max(0, (eased - 0.4 - i * 0.1) * 3));
+    if (legendProgress <= 0) return;
+
+    ctx.globalAlpha = legendProgress;
+    var y = legendY + i * 40;
+
+    // Line sample
+    ctx.strokeStyle = series.color;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(legendX, y);
+    ctx.lineTo(legendX + 30, y);
+    ctx.stroke();
+
+    // Dot
+    ctx.beginPath();
+    ctx.arc(legendX + 15, y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = series.color;
+    ctx.fill();
+
+    // Label
+    ctx.font = 'bold 14px ' + STYLE.fontFamily;
+    ctx.fillStyle = STYLE.text;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(series.name, legendX + 40, y);
+
+    ctx.globalAlpha = 1;
+  });
+
+  // Key annotations
+  if (progress > 0.6) {
+    var annoAlpha = Math.min(1, (progress - 0.6) * 2.5);
+    ctx.globalAlpha = annoAlpha;
+
+    // 2011 crossover annotation
+    var crossX = plotArea.x + 4 * stepX;
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(crossX, plotArea.y);
+    ctx.lineTo(crossX, plotArea.y + plotArea.height);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.font = '11px ' + STYLE.fontFamily;
+    ctx.fillStyle = '#FFD700';
+    ctx.textAlign = 'center';
+    ctx.fillText('2011', crossX, plotArea.y - 10);
+    ctx.fillText('Crossover', crossX, plotArea.y - 24);
+
+    // 2023 DVD end annotation
+    var endX = plotArea.x + 16 * stepX;
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = '#E50914';
+    ctx.beginPath();
+    ctx.moveTo(endX, plotArea.y);
+    ctx.lineTo(endX, plotArea.y + plotArea.height);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#E50914';
+    ctx.fillText('2023', endX, plotArea.y - 10);
+    ctx.fillText('DVD Ends', endX, plotArea.y - 24);
+
+    ctx.globalAlpha = 1;
+  }
+
+  // Source footer
+  if (progress > 0.5) {
+    var footerAlpha = Math.min(1, (progress - 0.5) * 2);
+    textMgr.placeText(CONFIG.source, WIDTH / 2, HEIGHT - 20, {
+      font: '11px ' + STYLE.fontFamily,
+      color: STYLE.textMuted,
+      align: 'center',
+      baseline: 'middle',
+      alpha: footerAlpha,
+      forcePosition: true
+    });
+  }
+}
+
+// =============================================
+// GENERATE GIF
+// =============================================
+function generate() {
+  var status = document.getElementById('status');
+  var statusText = document.getElementById('statusText');
+  var percentage = document.getElementById('percentage');
+  var progressBar = document.getElementById('progress');
+  var canvas = document.getElementById('canvas');
+  var ctx = canvas.getContext('2d');
+
+  var encoder = new GIFEncoder(WIDTH, HEIGHT);
+  encoder.start();
+
+  var total = ANIMATION.totalFrames + ANIMATION.holdFrames + 1;
+  var current = 0;
+
+  function updateProgress(pct, text) {
+    percentage.textContent = pct + '%';
+    statusText.textContent = text;
+    progressBar.style.width = pct + '%';
+  }
+
+  function renderAnimationFrames(i) {
+    if (i <= ANIMATION.totalFrames) {
+      renderFrame(ctx, i / ANIMATION.totalFrames);
+      encoder.addFrame(ctx, ANIMATION.frameDelay);
+      current++;
+      var pct = Math.round((current / total) * 100);
+      updateProgress(pct, 'Rendering frame ' + (i + 1) + ' of ' + (ANIMATION.totalFrames + 1) + '...');
+      setTimeout(function() { renderAnimationFrames(i + 1); }, 0);
+    } else {
+      renderHoldFrames(0);
+    }
+  }
+
+  function renderHoldFrames(i) {
+    if (i < ANIMATION.holdFrames) {
+      renderFrame(ctx, 1);
+      encoder.addFrame(ctx, ANIMATION.holdDelay);
+      current++;
+      var pct = Math.round((current / total) * 100);
+      updateProgress(pct, 'Adding hold frame ' + (i + 1) + ' of ' + ANIMATION.holdFrames + '...');
+      setTimeout(function() { renderHoldFrames(i + 1); }, 0);
+    } else {
+      finishEncoding();
+    }
+  }
+
+  function finishEncoding() {
+    updateProgress(99, 'Encoding GIF...');
+    setTimeout(function() {
+      var blob = encoder.finish();
+      var url = URL.createObjectURL(blob);
+
+      document.getElementById('preview').src = url;
+      document.getElementById('preview').style.display = 'block';
+      document.getElementById('downloadGif').href = url;
+      document.getElementById('downloadGif').style.display = 'inline-block';
+      document.getElementById('downloadVideo').style.display = 'inline-block';
+
+      status.className = 'success';
+      percentage.textContent = '100%';
+      statusText.textContent = 'Done! GIF size: ' + (blob.size / 1024).toFixed(0) + ' KB';
+      progressBar.style.width = '100%';
+      document.getElementById('subtitleText').textContent = 'Your infographic is ready!';
+
+      document.getElementById('downloadVideo').onclick = recordVideo;
+    }, 50);
+  }
+
+  updateProgress(0, 'Starting render...');
+  setTimeout(function() { renderAnimationFrames(0); }, 100);
+}
+
+// =============================================
+// VIDEO RECORDING
+// =============================================
+function recordVideo() {
+  var videoStatus = document.getElementById('videoStatus');
+  var videoBtn = document.getElementById('downloadVideo');
+  videoBtn.disabled = true;
+  videoBtn.textContent = 'Recording...';
+  videoStatus.textContent = 'Preparing video recording...';
+
+  var canvas = document.getElementById('canvas');
+  canvas.style.display = 'block';
+  canvas.style.position = 'absolute';
+  canvas.style.left = '-9999px';
+  var ctx = canvas.getContext('2d');
+
+  var stream = canvas.captureStream(30);
+  var chunks = [];
+  var mimeType = 'video/webm;codecs=vp9';
+  if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+  var recorder = new MediaRecorder(stream, { mimeType: mimeType, videoBitsPerSecond: 5000000 });
+
+  recorder.ondataavailable = function(e) { if (e.data.size > 0) chunks.push(e.data); };
+  recorder.onstop = function() {
+    var blob = new Blob(chunks, { type: mimeType });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'netflix-dvd-vs-streaming.webm';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    videoStatus.textContent = 'Video downloaded! Size: ' + (blob.size / 1024).toFixed(0) + ' KB';
+    videoBtn.disabled = false;
+    videoBtn.textContent = 'Download Video';
+    canvas.style.display = 'none';
+  };
+
+  recorder.start();
+  videoStatus.textContent = 'Recording animation...';
+
+  var totalFrames = ANIMATION.totalFrames + ANIMATION.holdFrames;
+  var frameIndex = 0;
+
+  function renderNextFrame() {
+    if (frameIndex <= ANIMATION.totalFrames) {
+      renderFrame(ctx, frameIndex / ANIMATION.totalFrames);
+    } else {
+      renderFrame(ctx, 1);
+    }
+    frameIndex++;
+    videoStatus.textContent = 'Recording frame ' + frameIndex + ' of ' + totalFrames + '...';
+    if (frameIndex < totalFrames) {
+      setTimeout(renderNextFrame, 1000 / 30);
+    } else {
+      setTimeout(function() { recorder.stop(); }, 200);
+    }
+  }
+  renderNextFrame();
+}
+
+window.onload = function() { setTimeout(generate, 100); };
+</script>
+</body>
+</html>

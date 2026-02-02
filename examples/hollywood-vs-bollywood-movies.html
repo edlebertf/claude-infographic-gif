@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hollywood vs Bollywood Movies</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: #0D1117;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      text-align: center;
+      max-width: 1000px;
+      width: 100%;
+      border: 1px solid #30363D;
+    }
+    h1 { color: #E6EDF3; margin-bottom: 8px; font-size: 24px; }
+    .subtitle { color: #8B949E; margin-bottom: 24px; }
+    #status { padding: 16px; border-radius: 8px; margin-bottom: 20px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 12px; }
+    .generating { background: #2D333B; color: #D29922; }
+    .success { background: #1C3D2E; color: #3FB950; }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(210, 153, 34, 0.3);
+      border-top-color: #D29922;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    .success .spinner { display: none; }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    #percentage {
+      font-size: 24px;
+      font-weight: 700;
+      color: #E6EDF3;
+      min-width: 60px;
+    }
+    #statusText { flex: 1; text-align: left; }
+    #preview { max-width: 100%; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.4); margin-bottom: 20px; border: 1px solid #30363D; }
+    .btn { display: inline-block; background: linear-gradient(135deg, #58A6FF 0%, #A371F7 100%); color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; cursor: pointer; border: none; font-size: 16px; }
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-secondary { background: linear-gradient(135deg, #3FB950 0%, #58A6FF 100%); }
+    .btn-container { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    #canvas { display: none; }
+    #videoStatus { margin-top: 12px; color: #D29922; font-size: 14px; min-height: 20px; }
+    .progress-bar { width: 100%; height: 8px; background: #21262D; border-radius: 4px; overflow: hidden; margin-bottom: 20px; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #58A6FF, #A371F7); width: 0%; transition: width 0.2s; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Hollywood vs Bollywood</h1>
+    <p class="subtitle" id="subtitleText">Generating bar chart...</p>
+    <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+    <div id="status" class="generating">
+      <div class="spinner"></div>
+      <span id="percentage">0%</span>
+      <span id="statusText">Initializing...</span>
+    </div>
+    <canvas id="canvas" width="950" height="700"></canvas>
+    <img id="preview" style="display:none;" alt="Generated infographic">
+    <div class="btn-container">
+      <a id="downloadGif" class="btn" style="display:none;" download="hollywood-vs-bollywood.gif">Download GIF</a>
+      <button id="downloadVideo" class="btn btn-secondary" style="display:none;">Download MP4 Video</button>
+    </div>
+    <div id="videoStatus"></div>
+  </div>
+
+<script>
+// =============================================
+// GIF ENCODER
+// =============================================
+function GIFEncoder(width, height) {
+  this.width = width;
+  this.height = height;
+  this.data = [];
+  this.writeByte = function(b) { this.data.push(b & 0xFF); };
+  this.writeShort = function(s) { this.writeByte(s & 0xFF); this.writeByte((s >> 8) & 0xFF); };
+  this.writeString = function(s) { for (var i = 0; i < s.length; i++) this.writeByte(s.charCodeAt(i)); };
+  this.start = function() {
+    this.data = [];
+    this.writeString('GIF89a');
+    this.writeShort(width); this.writeShort(height);
+    this.writeByte(0x70); this.writeByte(0); this.writeByte(0);
+    this.writeByte(0x21); this.writeByte(0xFF); this.writeByte(0x0B);
+    this.writeString('NETSCAPE2.0');
+    this.writeByte(0x03); this.writeByte(0x01); this.writeShort(0); this.writeByte(0x00);
+  };
+  this.addFrame = function(ctx, delay) {
+    var imgData = ctx.getImageData(0, 0, width, height);
+    var pixels = imgData.data;
+    var colorCounts = {};
+    for (var i = 0; i < pixels.length; i += 4) {
+      var r = pixels[i] & 0xF8, g = pixels[i+1] & 0xF8, b = pixels[i+2] & 0xF8;
+      var key = (r << 16) | (g << 8) | b;
+      colorCounts[key] = (colorCounts[key] || 0) + 1;
+    }
+    var sortedColors = Object.keys(colorCounts).map(function(k) {
+      return { color: parseInt(k), count: colorCounts[k] };
+    }).sort(function(a, b) { return b.count - a.count; }).slice(0, 256);
+    var palette = [], colorMap = {};
+    for (var i = 0; i < sortedColors.length; i++) {
+      var c = sortedColors[i].color;
+      palette.push((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+      colorMap[c] = i;
+    }
+    while (palette.length < 256 * 3) palette.push(0);
+    var indexed = new Uint8Array(width * height);
+    for (var i = 0; i < pixels.length; i += 4) {
+      var r = pixels[i] & 0xF8, g = pixels[i+1] & 0xF8, b = pixels[i+2] & 0xF8;
+      var key = (r << 16) | (g << 8) | b;
+      if (colorMap[key] !== undefined) indexed[i/4] = colorMap[key];
+      else {
+        var bestDist = Infinity, bestIdx = 0;
+        for (var j = 0; j < sortedColors.length; j++) {
+          var c = sortedColors[j].color;
+          var cr = (c >> 16) & 0xFF, cg = (c >> 8) & 0xFF, cb = c & 0xFF;
+          var dist = (r-cr)*(r-cr) + (g-cg)*(g-cg) + (b-cb)*(b-cb);
+          if (dist < bestDist) { bestDist = dist; bestIdx = j; }
+        }
+        indexed[i/4] = bestIdx;
+      }
+    }
+    this.writeByte(0x21); this.writeByte(0xF9); this.writeByte(0x04);
+    this.writeByte(0x00); this.writeShort(Math.round(delay / 10));
+    this.writeByte(0x00); this.writeByte(0x00);
+    this.writeByte(0x2C); this.writeShort(0); this.writeShort(0);
+    this.writeShort(width); this.writeShort(height); this.writeByte(0x87);
+    for (var i = 0; i < palette.length; i++) this.writeByte(palette[i]);
+    this.writeByte(8); this.lzwEncode(indexed); this.writeByte(0x00);
+  };
+  this.lzwEncode = function(pixels) {
+    var clearCode = 256, eoiCode = 257, codeSize = 9, nextCode = 258;
+    var dict = {}, buffer = 0, bufferLen = 0, output = [];
+    var emit = function(code) {
+      buffer |= code << bufferLen; bufferLen += codeSize;
+      while (bufferLen >= 8) { output.push(buffer & 0xFF); buffer >>= 8; bufferLen -= 8; }
+    };
+    emit(clearCode); var prev = pixels[0];
+    for (var i = 1; i < pixels.length; i++) {
+      var curr = pixels[i], key = prev + ',' + curr;
+      if (dict[key] !== undefined) prev = dict[key];
+      else {
+        emit(prev);
+        if (nextCode < 4096) { dict[key] = nextCode++; if (nextCode > (1 << codeSize) && codeSize < 12) codeSize++; }
+        else { emit(clearCode); dict = {}; codeSize = 9; nextCode = 258; }
+        prev = curr;
+      }
+    }
+    emit(prev); emit(eoiCode);
+    if (bufferLen > 0) output.push(buffer & 0xFF);
+    for (var i = 0; i < output.length; i += 255) {
+      var chunk = output.slice(i, Math.min(i + 255, output.length));
+      this.writeByte(chunk.length);
+      for (var j = 0; j < chunk.length; j++) this.writeByte(chunk[j]);
+    }
+  };
+  this.finish = function() {
+    this.writeByte(0x3B);
+    return new Blob([new Uint8Array(this.data)], {type: 'image/gif'});
+  };
+}
+
+// =============================================
+// CONFIGURATION
+// =============================================
+var WIDTH = 950;
+var HEIGHT = 700;
+
+var STYLE = {
+  background: '#0D1117',
+  text: '#E6EDF3',
+  textMuted: '#8B949E',
+  gridLine: '#21262D',
+  fontFamily: 'Arial, sans-serif',
+  hollywood: '#E50914',  // Netflix red / Hollywood red
+  bollywood: '#FF9933'   // Indian saffron
+};
+
+var TITLE = "Hollywood vs Bollywood Film Production";
+var SUBTITLE = "Number of feature films released per decade (1950-2020s)";
+
+// Data: decade, Hollywood films, Bollywood films (approximate)
+var DATA = [
+  { decade: "1950s", hollywood: 3800, bollywood: 1850 },
+  { decade: "1960s", hollywood: 3200, bollywood: 2400 },
+  { decade: "1970s", hollywood: 2600, bollywood: 3100 },
+  { decade: "1980s", hollywood: 3100, bollywood: 3400 },
+  { decade: "1990s", hollywood: 3800, bollywood: 2800 },
+  { decade: "2000s", hollywood: 5200, bollywood: 3200 },
+  { decade: "2010s", hollywood: 6400, bollywood: 3800 },
+  { decade: "2020s*", hollywood: 2800, bollywood: 1600 }
+];
+
+var ANIMATION = {
+  totalFrames: 60,
+  holdFrames: 55,
+  frameDelay: 45,
+  holdDelay: 65
+};
+
+// =============================================
+// LAYOUT (explicit positioning to avoid overlaps)
+// =============================================
+var Layout = {
+  titleY: 0.045,
+  subtitleY: 0.09,
+  legendY: 0.14,
+  chartTopY: 0.19,
+  chartBottomY: 0.78,
+  xLabelsY: 0.81,
+  xTitleY: 0.87,
+  footnoteY: 0.94,
+
+  marginLeft: 0.10,
+  marginRight: 0.05,
+
+  getChartArea: function() {
+    return {
+      x: WIDTH * this.marginLeft,
+      y: HEIGHT * this.chartTopY,
+      width: WIDTH * (1 - this.marginLeft - this.marginRight),
+      height: HEIGHT * (this.chartBottomY - this.chartTopY)
+    };
+  }
+};
+
+// =============================================
+// HELPERS
+// =============================================
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+function easeOutBack(t) {
+  var c1 = 1.70158;
+  var c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  if (w <= 0 || h <= 0) return;
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function formatNumber(n) {
+  if (n >= 1000) {
+    return (n / 1000).toFixed(1) + 'K';
+  }
+  return n.toString();
+}
+
+// =============================================
+// RENDER
+// =============================================
+function renderFrame(ctx, progress) {
+  var chart = Layout.getChartArea();
+
+  // Find max value for scaling
+  var maxValue = 0;
+  DATA.forEach(function(d) {
+    maxValue = Math.max(maxValue, d.hollywood, d.bollywood);
+  });
+  maxValue = Math.ceil(maxValue / 1000) * 1000 + 500; // Round up with padding
+
+  // Clear
+  ctx.fillStyle = STYLE.background;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  // Title
+  ctx.font = 'bold 28px ' + STYLE.fontFamily;
+  ctx.fillStyle = STYLE.text;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(TITLE, WIDTH / 2, HEIGHT * Layout.titleY);
+
+  // Subtitle
+  ctx.font = '14px ' + STYLE.fontFamily;
+  ctx.fillStyle = STYLE.textMuted;
+  ctx.fillText(SUBTITLE, WIDTH / 2, HEIGHT * Layout.subtitleY);
+
+  // Legend
+  var legendY = HEIGHT * Layout.legendY;
+  var legendCenterX = WIDTH / 2;
+
+  ctx.font = 'bold 13px ' + STYLE.fontFamily;
+
+  // Hollywood legend
+  ctx.fillStyle = STYLE.hollywood;
+  ctx.fillRect(legendCenterX - 150, legendY - 7, 16, 16);
+  ctx.fillStyle = STYLE.text;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Hollywood (USA)', legendCenterX - 128, legendY);
+
+  // Bollywood legend
+  ctx.fillStyle = STYLE.bollywood;
+  ctx.fillRect(legendCenterX + 40, legendY - 7, 16, 16);
+  ctx.fillStyle = STYLE.text;
+  ctx.fillText('Bollywood (India)', legendCenterX + 62, legendY);
+
+  // Grid animation
+  var gridProgress = easeOutCubic(Math.min(1, progress * 2.5));
+
+  // Y-axis grid lines and labels
+  ctx.strokeStyle = STYLE.gridLine;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+
+  var yTicks = [0, 2000, 4000, 6000];
+  yTicks.forEach(function(val) {
+    var y = chart.y + chart.height - (val / maxValue) * chart.height;
+
+    ctx.globalAlpha = gridProgress * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(chart.x, y);
+    ctx.lineTo(chart.x + chart.width * gridProgress, y);
+    ctx.stroke();
+
+    // Y-axis label
+    ctx.globalAlpha = gridProgress;
+    ctx.font = 'bold 11px ' + STYLE.fontFamily;
+    ctx.fillStyle = STYLE.textMuted;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.setLineDash([]);
+    ctx.fillText(formatNumber(val), chart.x - 10, y);
+    ctx.setLineDash([4, 4]);
+  });
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+
+  // Y-axis
+  ctx.strokeStyle = STYLE.textMuted;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(chart.x, chart.y + chart.height);
+  ctx.lineTo(chart.x, chart.y + chart.height * (1 - gridProgress));
+  ctx.stroke();
+
+  // X-axis
+  ctx.beginPath();
+  ctx.moveTo(chart.x, chart.y + chart.height);
+  ctx.lineTo(chart.x + chart.width * gridProgress, chart.y + chart.height);
+  ctx.stroke();
+
+  // Y-axis title
+  ctx.save();
+  ctx.translate(chart.x - 55, chart.y + chart.height / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.font = 'bold 13px ' + STYLE.fontFamily;
+  ctx.fillStyle = STYLE.text;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.globalAlpha = gridProgress;
+  ctx.fillText('Number of Films', 0, 0);
+  ctx.restore();
+  ctx.globalAlpha = 1;
+
+  // Calculate bar dimensions
+  var groupCount = DATA.length;
+  var groupWidth = chart.width / groupCount;
+  var barWidth = groupWidth * 0.32;
+  var barGap = groupWidth * 0.06;
+
+  // Draw bars
+  // Animation timing: ensure all items complete by progress=1
+  var barsStartProgress = 0.12;
+  var totalItems = DATA.length;
+  var itemStagger = 0.06; // Delay between each item
+  var lastItemStart = barsStartProgress + (totalItems - 1) * itemStagger;
+  var animSpeed = 1 / (1 - lastItemStart - 0.15); // Ensure last item finishes with room for labels
+
+  DATA.forEach(function(item, i) {
+    var groupX = chart.x + groupWidth * i + groupWidth / 2;
+
+    var itemDelay = i * itemStagger;
+    var itemProgress = Math.min(1, Math.max(0, (progress - barsStartProgress - itemDelay) * animSpeed));
+    if (itemProgress <= 0) return;
+
+    var easedProgress = easeOutBack(Math.min(1, itemProgress * 1.1));
+
+    // Hollywood bar
+    var hHeight = (item.hollywood / maxValue) * chart.height * easedProgress;
+    var hX = groupX - barWidth - barGap / 2;
+    var hY = chart.y + chart.height - hHeight;
+
+    if (hHeight > 0) {
+      ctx.fillStyle = STYLE.hollywood;
+      roundRect(ctx, hX, hY, barWidth, hHeight, 4);
+      ctx.fill();
+
+      // Value label - appears when bar is 40% done, fully visible by 70%
+      if (itemProgress > 0.4) {
+        ctx.globalAlpha = Math.min(1, (itemProgress - 0.4) / 0.3);
+        ctx.font = 'bold 11px ' + STYLE.fontFamily;
+        ctx.fillStyle = STYLE.text;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(formatNumber(item.hollywood), hX + barWidth / 2, hY - 4);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Bollywood bar
+    var bHeight = (item.bollywood / maxValue) * chart.height * easedProgress;
+    var bX = groupX + barGap / 2;
+    var bY = chart.y + chart.height - bHeight;
+
+    if (bHeight > 0) {
+      ctx.fillStyle = STYLE.bollywood;
+      roundRect(ctx, bX, bY, barWidth, bHeight, 4);
+      ctx.fill();
+
+      // Value label - appears when bar is 40% done, fully visible by 70%
+      if (itemProgress > 0.4) {
+        ctx.globalAlpha = Math.min(1, (itemProgress - 0.4) / 0.3);
+        ctx.font = 'bold 11px ' + STYLE.fontFamily;
+        ctx.fillStyle = STYLE.text;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(formatNumber(item.bollywood), bX + barWidth / 2, bY - 4);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Decade label (x-axis)
+    ctx.globalAlpha = Math.min(1, itemProgress * 2);
+    ctx.font = 'bold 13px ' + STYLE.fontFamily;
+    ctx.fillStyle = STYLE.text;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(item.decade, groupX, HEIGHT * Layout.xLabelsY);
+    ctx.globalAlpha = 1;
+  });
+
+  // X-axis title
+  ctx.font = 'bold 13px ' + STYLE.fontFamily;
+  ctx.fillStyle = STYLE.text;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.globalAlpha = easeOutCubic(Math.min(1, progress * 2));
+  ctx.fillText('Decade', WIDTH / 2, HEIGHT * Layout.xTitleY);
+  ctx.globalAlpha = 1;
+
+  // Footnote
+  var footnoteProgress = easeOutCubic(Math.min(1, Math.max(0, (progress - 0.8) * 4)));
+  if (footnoteProgress > 0) {
+    ctx.globalAlpha = footnoteProgress * 0.7;
+    ctx.font = '11px ' + STYLE.fontFamily;
+    ctx.fillStyle = STYLE.textMuted;
+    ctx.textAlign = 'center';
+    ctx.fillText('*2020s data is partial (2020-2024). Sources: MPAA, Film Federation of India', WIDTH / 2, HEIGHT * Layout.footnoteY);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// =============================================
+// GENERATE
+// =============================================
+function generate() {
+  var status = document.getElementById('status');
+  var statusText = document.getElementById('statusText');
+  var percentage = document.getElementById('percentage');
+  var progressBar = document.getElementById('progress');
+  var canvas = document.getElementById('canvas');
+  var ctx = canvas.getContext('2d');
+
+  var encoder = new GIFEncoder(WIDTH, HEIGHT);
+  encoder.start();
+
+  var total = ANIMATION.totalFrames + ANIMATION.holdFrames + 1;
+  var current = 0;
+
+  function updateProgress(pct, text) {
+    percentage.textContent = pct + '%';
+    statusText.textContent = text;
+    progressBar.style.width = pct + '%';
+  }
+
+  function renderAnimationFrames(i) {
+    if (i <= ANIMATION.totalFrames) {
+      renderFrame(ctx, i / ANIMATION.totalFrames);
+      encoder.addFrame(ctx, ANIMATION.frameDelay);
+      current++;
+      var pct = Math.round((current / total) * 100);
+      updateProgress(pct, 'Rendering frame ' + (i + 1) + ' of ' + (ANIMATION.totalFrames + 1) + '...');
+      setTimeout(function() { renderAnimationFrames(i + 1); }, 0);
+    } else {
+      renderHoldFrames(0);
+    }
+  }
+
+  function renderHoldFrames(i) {
+    if (i < ANIMATION.holdFrames) {
+      renderFrame(ctx, 1);
+      encoder.addFrame(ctx, ANIMATION.holdDelay);
+      current++;
+      var pct = Math.round((current / total) * 100);
+      updateProgress(pct, 'Adding hold frame ' + (i + 1) + ' of ' + ANIMATION.holdFrames + '...');
+      setTimeout(function() { renderHoldFrames(i + 1); }, 0);
+    } else {
+      finishEncoding();
+    }
+  }
+
+  function finishEncoding() {
+    updateProgress(99, 'Encoding GIF...');
+    setTimeout(function() {
+      var blob = encoder.finish();
+      var url = URL.createObjectURL(blob);
+
+      document.getElementById('preview').src = url;
+      document.getElementById('preview').style.display = 'block';
+      document.getElementById('downloadGif').href = url;
+      document.getElementById('downloadGif').style.display = 'inline-block';
+      document.getElementById('downloadVideo').style.display = 'inline-block';
+
+      status.className = 'success';
+      percentage.textContent = '100%';
+      statusText.textContent = 'Done! GIF size: ' + (blob.size / 1024).toFixed(0) + ' KB';
+      progressBar.style.width = '100%';
+      document.getElementById('subtitleText').textContent = 'Your infographic is ready!';
+
+      // Set up video recording button
+      document.getElementById('downloadVideo').onclick = recordVideo;
+    }, 50);
+  }
+
+  // Video recording function using MediaRecorder API
+  function recordVideo() {
+    var videoStatus = document.getElementById('videoStatus');
+    var videoBtn = document.getElementById('downloadVideo');
+    videoBtn.disabled = true;
+    videoBtn.textContent = 'Recording...';
+    videoStatus.textContent = 'Preparing video recording...';
+
+    var canvas = document.getElementById('canvas');
+    canvas.style.display = 'block';
+    canvas.style.position = 'absolute';
+    canvas.style.left = '-9999px';
+    var ctx = canvas.getContext('2d');
+
+    // Set up MediaRecorder
+    var stream = canvas.captureStream(30); // 30 FPS
+    var chunks = [];
+    var mimeType = 'video/webm;codecs=vp9';
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      mimeType = 'video/webm';
+    }
+    var recorder = new MediaRecorder(stream, { mimeType: mimeType, videoBitsPerSecond: 5000000 });
+
+    recorder.ondataavailable = function(e) {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+
+    recorder.onstop = function() {
+      var blob = new Blob(chunks, { type: mimeType });
+      var url = URL.createObjectURL(blob);
+      var ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+
+      // Create download link
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'hollywood-vs-bollywood.' + ext;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      videoStatus.textContent = 'Video downloaded! Size: ' + (blob.size / 1024).toFixed(0) + ' KB';
+      videoBtn.disabled = false;
+      videoBtn.textContent = 'Download MP4 Video';
+      canvas.style.display = 'none';
+    };
+
+    // Start recording
+    recorder.start();
+    videoStatus.textContent = 'Recording animation...';
+
+    // Render animation frames in real-time
+    var totalFrames = ANIMATION.totalFrames + ANIMATION.holdFrames;
+    var frameIndex = 0;
+    var animFrameDelay = 1000 / 30; // 30 FPS for smooth video
+
+    function renderNextFrame() {
+      if (frameIndex <= ANIMATION.totalFrames) {
+        renderFrame(ctx, frameIndex / ANIMATION.totalFrames);
+      } else {
+        renderFrame(ctx, 1); // Hold frame
+      }
+
+      frameIndex++;
+      videoStatus.textContent = 'Recording frame ' + frameIndex + ' of ' + totalFrames + '...';
+
+      if (frameIndex < totalFrames) {
+        setTimeout(renderNextFrame, animFrameDelay);
+      } else {
+        // Add a small delay then stop recording
+        setTimeout(function() {
+          recorder.stop();
+        }, 200);
+      }
+    }
+
+    renderNextFrame();
+  }
+
+  updateProgress(0, 'Starting render...');
+  setTimeout(function() { renderAnimationFrames(0); }, 100);
+}
+
+window.onload = function() { setTimeout(generate, 100); };
+</script>
+</body>
+</html>
