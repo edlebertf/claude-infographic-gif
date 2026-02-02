@@ -9,7 +9,7 @@ A Claude Code skill that creates beautiful, animated GIF infographics from your 
 - **23 chart types** - pie, bar, line, sankey, gauge, radar, funnel, treemap, heatmap, and more
 - **5 visual styles** - dark, light, vibrant, corporate, minimal
 - **Fully offline** - generates self-contained HTML files that work without internet
-- **Dual export** - download as GIF or video (WebM)
+- **Dual export** - download as GIF or MP4 video
 - **No dependencies** - pure JavaScript, works in any modern browser
 - **Natural language** - just describe your data and chart type
 
@@ -108,7 +108,7 @@ You can also use the templates directly by copying the HTML output and opening i
 2. Claude generates a self-contained HTML file
 3. Open the HTML in any browser
 4. The chart animates automatically
-5. Download as GIF or video
+5. Download as GIF or MP4
 
 The generated HTML includes everything needed - no external dependencies, no server required.
 
@@ -119,7 +119,7 @@ The generated HTML includes everything needed - no external dependencies, no ser
 - **Hold time**: ~3 seconds at the end
 - **Frame rate**: 20 FPS
 - **GIF size**: 200-800 KB typical
-- **Video size**: 500KB-2MB typical
+- **MP4 size**: 500KB-2MB typical
 
 ## Project Structure
 
