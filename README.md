@@ -108,7 +108,7 @@ You can also use the templates directly by copying the HTML output and opening i
 2. Claude generates a self-contained HTML file
 3. Open the HTML in any browser
 4. The chart animates automatically
-5. Download as GIF or MP4
+5. Download as GIF or video
 
 The generated HTML includes everything needed - no external dependencies, no server required.
 

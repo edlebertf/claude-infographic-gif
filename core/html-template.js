@@ -206,35 +206,24 @@ function generate() {
 }
 
 // =============================================
-// VIDEO RECORDING (with ffmpeg.wasm for MP4)
+// VIDEO RECORDING - MP4 via WebCodecs + mp4-muxer
 // =============================================
-var ffmpegLoaded = false;
-var ffmpeg = null;
+var Mp4Muxer = null;
 
-async function loadFFmpeg() {
-  if (ffmpegLoaded) return true;
-
+async function loadMp4Muxer() {
+  if (Mp4Muxer) return true;
   try {
-    // Load FFmpeg from CDN
-    const { FFmpeg } = await import('https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js');
-    const { fetchFile } = await import('https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js');
-
-    ffmpeg = new FFmpeg();
-    ffmpeg.on('progress', ({ progress }) => {
-      document.getElementById('videoStatus').textContent =
-        'Converting to MP4... ' + Math.round(progress * 100) + '%';
+    var script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.min.js';
+    await new Promise((resolve, reject) => {
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
     });
-
-    await ffmpeg.load({
-      coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js',
-      wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm'
-    });
-
-    ffmpegLoaded = true;
-    window.fetchFile = fetchFile;
+    Mp4Muxer = window.Mp4Muxer;
     return true;
-  } catch (err) {
-    console.error('FFmpeg load error:', err);
+  } catch (e) {
+    console.error('Failed to load mp4-muxer:', e);
     return false;
   }
 }
@@ -244,18 +233,22 @@ async function recordVideo() {
   var videoBtn = document.getElementById('downloadVideo');
   videoBtn.disabled = true;
   videoBtn.textContent = 'Recording...';
-  videoStatus.textContent = 'Loading MP4 encoder (first time may take a moment)...';
 
-  // Load FFmpeg first
-  var ffmpegReady = await loadFFmpeg();
-  if (!ffmpegReady) {
-    videoStatus.textContent = 'Error: Could not load MP4 encoder. Try refreshing the page.';
-    videoBtn.disabled = false;
-    videoBtn.textContent = 'Download MP4';
+  if (typeof VideoEncoder === 'undefined') {
+    videoStatus.textContent = 'MP4 export requires Chrome 94+. Falling back to WebM...';
+    await new Promise(r => setTimeout(r, 1500));
+    recordWebM();
     return;
   }
 
-  videoStatus.textContent = 'Preparing video recording...';
+  videoStatus.textContent = 'Loading MP4 encoder...';
+  var muxerLoaded = await loadMp4Muxer();
+  if (!muxerLoaded) {
+    videoStatus.textContent = 'Failed to load encoder. Falling back to WebM...';
+    await new Promise(r => setTimeout(r, 1500));
+    recordWebM();
+    return;
+  }
 
   var canvas = document.getElementById('canvas');
   canvas.style.display = 'block';
@@ -263,75 +256,118 @@ async function recordVideo() {
   canvas.style.left = '-9999px';
   var ctx = canvas.getContext('2d');
 
-  var stream = canvas.captureStream(30);
-  var chunks = [];
-  var mimeType = 'video/webm;codecs=vp9';
-  if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
-  var recorder = new MediaRecorder(stream, { mimeType: mimeType, videoBitsPerSecond: 8000000 });
-
-  recorder.ondataavailable = function(e) { if (e.data.size > 0) chunks.push(e.data); };
-  recorder.onstop = async function() {
-    videoStatus.textContent = 'Converting to MP4...';
-
-    try {
-      var webmBlob = new Blob(chunks, { type: mimeType });
-      var webmData = await webmBlob.arrayBuffer();
-
-      await ffmpeg.writeFile('input.webm', new Uint8Array(webmData));
-      await ffmpeg.exec(['-i', 'input.webm', '-c:v', 'libx264', '-preset', 'fast', '-crf', '22', '-pix_fmt', 'yuv420p', 'output.mp4']);
-      var mp4Data = await ffmpeg.readFile('output.mp4');
-
-      var mp4Blob = new Blob([mp4Data.buffer], { type: 'video/mp4' });
-      var url = URL.createObjectURL(mp4Blob);
-      var a = document.createElement('a');
-      a.href = url;
-      a.download = '${filename}.mp4';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-
-      videoStatus.textContent = 'MP4 downloaded! Size: ' + (mp4Blob.size / 1024).toFixed(0) + ' KB';
-
-      // Cleanup
-      await ffmpeg.deleteFile('input.webm');
-      await ffmpeg.deleteFile('output.mp4');
-    } catch (err) {
-      console.error('MP4 conversion error:', err);
-      videoStatus.textContent = 'Error converting to MP4. Downloading WebM instead...';
-      var webmBlob = new Blob(chunks, { type: mimeType });
-      var url = URL.createObjectURL(webmBlob);
-      var a = document.createElement('a');
-      a.href = url;
-      a.download = '${filename}.webm';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }
-
-    videoBtn.disabled = false;
-    videoBtn.textContent = 'Download MP4';
-    canvas.style.display = 'none';
-  };
-
-  recorder.start();
-  videoStatus.textContent = 'Recording animation...';
+  var muxer = new Mp4Muxer.Muxer({
+    target: new Mp4Muxer.ArrayBufferTarget(),
+    video: { codec: 'avc', width: WIDTH, height: HEIGHT },
+    fastStart: 'in-memory'
+  });
 
   var totalFrames = ANIMATION.totalFrames + ANIMATION.holdFrames;
-  var frameIndex = 0;
+  var fps = 30;
+  var frameDuration = 1000000 / fps;
 
-  function renderNextFrame() {
+  var encoder = new VideoEncoder({
+    output: (chunk, meta) => { muxer.addVideoChunk(chunk, meta); },
+    error: (e) => { console.error('Encoder error:', e); recordWebM(); }
+  });
+
+  try {
+    await encoder.configure({
+      codec: 'avc1.42001f',
+      width: WIDTH,
+      height: HEIGHT,
+      bitrate: 5000000,
+      framerate: fps
+    });
+  } catch (e) {
+    videoStatus.textContent = 'H.264 not supported. Falling back to WebM...';
+    await new Promise(r => setTimeout(r, 1500));
+    recordWebM();
+    return;
+  }
+
+  videoStatus.textContent = 'Recording MP4...';
+
+  async function encodeFrame(frameIndex) {
     if (frameIndex <= ANIMATION.totalFrames) {
       renderFrame(ctx, frameIndex / ANIMATION.totalFrames);
     } else {
       renderFrame(ctx, 1);
     }
+    var frame = new VideoFrame(canvas, { timestamp: frameIndex * frameDuration, duration: frameDuration });
+    encoder.encode(frame, { keyFrame: frameIndex % 30 === 0 });
+    frame.close();
+    videoStatus.textContent = 'Encoding frame ' + (frameIndex + 1) + ' of ' + totalFrames + '...';
+    if (frameIndex < totalFrames - 1) {
+      await new Promise(r => setTimeout(r, 0));
+      await encodeFrame(frameIndex + 1);
+    }
+  }
+
+  try {
+    await encodeFrame(0);
+    await encoder.flush();
+    encoder.close();
+    muxer.finalize();
+    var blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '${filename}.mp4';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    videoStatus.textContent = 'MP4 downloaded! Size: ' + (blob.size / 1024).toFixed(0) + ' KB';
+  } catch (e) {
+    console.error('MP4 error:', e);
+    videoStatus.textContent = 'MP4 failed. Falling back to WebM...';
+    await new Promise(r => setTimeout(r, 1500));
+    recordWebM();
+    return;
+  }
+  videoBtn.disabled = false;
+  videoBtn.textContent = 'Download MP4';
+  canvas.style.display = 'none';
+}
+
+function recordWebM() {
+  var videoStatus = document.getElementById('videoStatus');
+  var videoBtn = document.getElementById('downloadVideo');
+  var canvas = document.getElementById('canvas');
+  canvas.style.display = 'block';
+  canvas.style.position = 'absolute';
+  canvas.style.left = '-9999px';
+  var ctx = canvas.getContext('2d');
+  var stream = canvas.captureStream(30);
+  var chunks = [];
+  var mimeType = 'video/webm;codecs=vp9';
+  if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+  var recorder = new MediaRecorder(stream, { mimeType: mimeType, videoBitsPerSecond: 5000000 });
+  recorder.ondataavailable = function(e) { if (e.data.size > 0) chunks.push(e.data); };
+  recorder.onstop = function() {
+    var blob = new Blob(chunks, { type: mimeType });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '${filename}.webm';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    videoStatus.textContent = 'Video downloaded! Size: ' + (blob.size / 1024).toFixed(0) + ' KB (WebM fallback)';
+    videoBtn.disabled = false;
+    videoBtn.textContent = 'Download MP4';
+    canvas.style.display = 'none';
+  };
+  recorder.start();
+  var totalFrames = ANIMATION.totalFrames + ANIMATION.holdFrames;
+  var frameIndex = 0;
+  function renderNextFrame() {
+    if (frameIndex <= ANIMATION.totalFrames) renderFrame(ctx, frameIndex / ANIMATION.totalFrames);
+    else renderFrame(ctx, 1);
     frameIndex++;
     videoStatus.textContent = 'Recording frame ' + frameIndex + ' of ' + totalFrames + '...';
-    if (frameIndex < totalFrames) {
-      setTimeout(renderNextFrame, 1000 / 30);
-    } else {
-      setTimeout(function() { recorder.stop(); }, 200);
-    }
+    if (frameIndex < totalFrames) setTimeout(renderNextFrame, 1000 / 30);
+    else setTimeout(function() { recorder.stop(); }, 200);
   }
   renderNextFrame();
 }

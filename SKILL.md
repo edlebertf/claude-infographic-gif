@@ -53,14 +53,14 @@ textMgr.reserveRegion(barX, barY, barWidth, barHeight);
 
 When generating a chart, use the HTML template from `core/html-template.js` which includes:
 - Progress indicator with spinner and percentage
-- Dual download options (GIF + MP4)
+- Dual download options (GIF + Video)
 - Proper animation timing (all elements complete before hold frames)
 - Self-contained code (works offline)
 
 Key features to always include:
 1. **Animation timing**: Calculate stagger delays based on item count so ALL elements reach 100% opacity before progress=1
 2. **Layout zones**: Use `LayoutCalculator.calculate()` from `core/text-layout.js` to get safe zones for each element type
-3. **MP4 export**: Uses ffmpeg.wasm to convert recorded video to MP4 format
+3. **Video recording**: Use WebCodecs API + mp4-muxer for MP4 export (with WebM fallback for older browsers)
 
 Reference templates in `templates/` folder for each chart type's render function.
 
@@ -309,7 +309,7 @@ Example:
 
 **Download options**:
 - **GIF**: Smaller file, loops automatically, 256 colors (some quality loss)
-- **MP4**: Larger file, full color quality, universal compatibility, better for presentations
+- **MP4 Video**: Larger file, full color quality, better for presentations (WebM fallback for older browsers)
 
 **Default settings**:
 - Resolution: 800x800 (square) or 900x600 (landscape)
@@ -317,13 +317,13 @@ Example:
 - End pause: ~3 seconds
 - Frame rate: 20 FPS
 - Typical GIF size: 200-800 KB
-- Typical MP4 size: 500KB-2MB
+- Typical video size: 500KB-2MB
 
 **Why HTML instead of direct file?**
 - Works offline (no server needed)
 - No external dependencies
 - Opens in any browser
-- Generates both GIF and MP4 on your machine
+- Generates both GIF and video on your machine
 - You can inspect/modify if needed
 
 ---
