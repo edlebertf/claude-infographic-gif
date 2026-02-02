@@ -19,7 +19,7 @@ A Claude Code skill that creates beautiful, animated GIF infographics from your 
 
 1. Clone this repository to your Claude Code skills directory:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/claude-infographic-gif.git ~/.claude/skills/infographic-gif
+   git clone https://github.com/edlebertf/claude-infographic-gif.git ~/.claude/skills/infographic-gif
    ```
 
 2. The skill will be automatically available in Claude Code. Use it by typing:
