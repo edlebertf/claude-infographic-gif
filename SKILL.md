@@ -47,7 +47,71 @@ textMgr.reserveRegion(barX, barY, barWidth, barHeight);
 4. Reserve regions for data elements (bars, dots, lines, etc.)
 5. Place axis labels
 6. Place data value labels LAST (will auto-adjust around reserved regions)
-7. Place footer/source text
+7. Place insights section (if any) - ALWAYS below the chart
+8. Place footer/source text
+
+### CRITICAL: Insights Block Positioning (MANDATORY)
+
+**Insights/key takeaways MUST ALWAYS be positioned BELOW the chart content, NEVER overlapping with the chart or legend.**
+
+Use `LayoutCalculator.getInsightPositions()` for proper placement:
+
+```javascript
+// Calculate layout with insights
+var zones = LayoutCalculator.calculate(WIDTH, HEIGHT, {
+  title: true,
+  subtitle: true,
+  insights: true,
+  insightCount: INSIGHTS.length,  // Number of insight items
+  footer: true
+});
+
+// In renderFrame, position insights using the calculated zones:
+var insightStartY = zones.insightsHeaderY;
+
+// Draw separator line above insights
+ctx.strokeStyle = '#30363D';
+ctx.lineWidth = 1;
+ctx.beginPath();
+ctx.moveTo(50, insightStartY - 15);
+ctx.lineTo(WIDTH - 50, insightStartY - 15);
+ctx.stroke();
+
+// Draw "KEY INSIGHTS" header
+textMgr.placeText('KEY INSIGHTS', WIDTH / 2, insightStartY, {
+  font: 'bold 14px Arial',
+  color: '#A371F7',
+  align: 'center',
+  baseline: 'middle'
+});
+
+// Get positions for insight items (2-column grid)
+var insightPositions = LayoutCalculator.getInsightPositions(
+  WIDTH,
+  INSIGHTS.length,
+  zones.insightsGridStartY,
+  35  // row spacing
+);
+
+// Draw each insight
+for (var i = 0; i < INSIGHTS.length; i++) {
+  var pos = insightPositions[i];
+  textMgr.placeText(INSIGHTS[i].icon + '  ' + INSIGHTS[i].text, pos.x, pos.y, {
+    font: '15px Arial',
+    color: STYLE.text,
+    align: 'center',
+    baseline: 'middle'
+  });
+}
+```
+
+**Key rules for insights:**
+1. ALWAYS use `LayoutCalculator.calculate()` with `insights: true` to reserve vertical space
+2. Insights go in a 2-column grid below ALL chart content
+3. Add a horizontal separator line above the insights section
+4. Include a "KEY INSIGHTS" header
+5. Use emoji icons for visual appeal (🎬 📊 💡 etc.)
+6. Keep insight text concise (under 35 characters recommended)
 
 ### Other Requirements
 

@@ -247,6 +247,8 @@ var LayoutCalculator = {
     var hasYLabel = options.yLabel !== false;
     var hasLegend = options.legend || false;
     var hasFooter = options.footer || false;
+    var hasInsights = options.insights || false;
+    var insightCount = options.insightCount || 0;
 
     // Fixed vertical zones (top to bottom)
     var zones = {
@@ -278,17 +280,31 @@ var LayoutCalculator = {
       xTitleY: 0,
       xTitleHeight: hasXLabel ? height * 0.04 : 0,
 
-      // Footer/insight zone
+      // Insights zone (ALWAYS below chart, never overlapping)
+      insightsY: 0,
+      insightsHeight: 0,
+      insightsHeaderY: 0,
+      insightsGridStartY: 0,
+      insightsRowSpacing: 35,
+
+      // Footer/source zone
       footerY: 0,
-      footerHeight: hasFooter ? height * 0.06 : 0,
+      footerHeight: hasFooter ? height * 0.04 : 0,
 
       // Bottom padding
-      bottomPadding: height * 0.02
+      bottomPadding: height * 0.03
     };
 
-    // Calculate plot area boundaries
+    // Calculate insights height based on count (2 items per row)
+    if (hasInsights && insightCount > 0) {
+      var rows = Math.ceil(insightCount / 2);
+      // Header (20px) + gap (15px) + rows * spacing + bottom gap
+      zones.insightsHeight = 20 + 15 + (rows * zones.insightsRowSpacing) + 10;
+    }
+
+    // Calculate plot area boundaries (accounting for insights below)
     var plotStartY = zones.titleY + zones.titleHeight + zones.subtitleHeight + zones.plotTopGap;
-    var plotEndY = height - zones.bottomPadding - zones.footerHeight - zones.xTitleHeight - zones.xLabelsHeight;
+    var plotEndY = height - zones.bottomPadding - zones.footerHeight - zones.insightsHeight - zones.xTitleHeight - zones.xLabelsHeight;
 
     zones.plotTop = plotStartY;
     zones.plotBottom = plotEndY;
@@ -297,6 +313,13 @@ var LayoutCalculator = {
 
     zones.xLabelsY = plotEndY + 8;
     zones.xTitleY = zones.xLabelsY + zones.xLabelsHeight;
+
+    // Insights zone positioning (BELOW x-axis labels, with separator line)
+    zones.insightsY = zones.xTitleY + zones.xTitleHeight + 10;
+    zones.insightsHeaderY = zones.insightsY + 10;
+    zones.insightsGridStartY = zones.insightsHeaderY + 25;
+
+    // Footer at very bottom
     zones.footerY = height - zones.bottomPadding - zones.footerHeight / 2;
 
     // Computed dimensions
@@ -312,6 +335,37 @@ var LayoutCalculator = {
     }
 
     return zones;
+  },
+
+  /**
+   * Calculate insights grid positions
+   * Returns array of {x, y} positions for each insight item
+   * Items are arranged in 2-column grid, centered horizontally
+   *
+   * @param {number} width - Canvas width
+   * @param {number} insightCount - Number of insight items
+   * @param {number} startY - Y position where insights grid starts
+   * @param {number} rowSpacing - Vertical spacing between rows (default 35)
+   * @returns {Array} Array of {x, y} positions
+   */
+  getInsightPositions: function(width, insightCount, startY, rowSpacing) {
+    rowSpacing = rowSpacing || 35;
+    var positions = [];
+
+    // 2-column layout: left at 25% width, right at 75% width
+    var leftX = width * 0.25;
+    var rightX = width * 0.75;
+
+    for (var i = 0; i < insightCount; i++) {
+      var row = Math.floor(i / 2);
+      var col = i % 2;
+      positions.push({
+        x: col === 0 ? leftX : rightX,
+        y: startY + (row * rowSpacing)
+      });
+    }
+
+    return positions;
   }
 };
 
